@@ -8,9 +8,9 @@ venv/
 .venv/
 *.pth
 
-# 数据集(已传 Hugging Face)
+# datasets(upload to Hugging Face)
 ac_dataset/
 dc_dataset/
 
-# 密钥
+# keys
 .env

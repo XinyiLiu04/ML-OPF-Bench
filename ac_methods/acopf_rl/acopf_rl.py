@@ -543,7 +543,7 @@ def acopf_rl_experiment(
 
 
 if __name__ == "__main__":
-    TOTAL_TIMESTEPS = None   # None derives it from N_EPOCHS_MAX; see the printed count
+    TOTAL_TIMESTEPS = 20000   # None derives it from N_EPOCHS_MAX; see the printed count
     PENALTY_WEIGHT = 0.5
     ACTION_BOUNDS = 'dataset'   # or 'physical'
     N_SCALING_PROBES = 500

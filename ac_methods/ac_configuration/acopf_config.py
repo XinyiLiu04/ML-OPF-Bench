@@ -7,13 +7,18 @@ import os
 # Dataset location
 # =====================================================================
 # Dataset: https://huggingface.co/datasets/xinyi-liu/ML-OPF-Bench
-# Point ROOT_DIR at the local copy of the dataset repository, i.e. the folder
-# that contains ac_dataset/.
-ROOT_DIR = "/lambda/nfs/lxy/acopf_project/ML-OPF-Bench"
+# Point this at the local copy of the dataset repository, i.e. the folder that
+# contains ac_dataset/. The environment variable wins when set, so the same
+# checkout can run on several machines without editing this file:
+#   export ML_OPF_BENCH_DATA=/path/to/ML-OPF-Bench
+# `or` rather than a get default, so an environment variable set to an empty
+# string does not silently turn every path into a relative one
+ROOT_DIR = (os.environ.get("ML_OPF_BENCH_DATA")
+            or "/Users/xinyiliu/Projects/ml-opf-bench/ML-OPF-Bench")
 
 DATA_SUBDIR = os.path.join("ac_dataset", "acopf_datasets")
 CONSTRAINTS_SUBDIR = os.path.join("ac_dataset", "acopf_constraints")
-DC_CONSTRAINTS_SUBDIR = os.path.join("dc_dataset", "dcopf_constraints")
+DC_CONSTRAINTS_SUBDIR = os.path.join("dc_dataset", "dcopf_constraints")  # <- confirm
 
 # Expected directory layout:
 #   ROOT_DIR/DATA_SUBDIR/<short_name>(<variance>)/<full_name>_{pd,qd,pg,qg,vm,va}.csv
@@ -46,7 +51,7 @@ LEARNING_RATE = 1e-3
 HIDDEN_SIZES = [64, 32]
 BATCH_SIZE = 32  # None means full batch
 SEED = 42
-DEVICE = 'cuda'  # 'cuda' or 'cpu'
+DEVICE = 'auto'  # 'auto', 'cuda', 'mps' or 'cpu'
 
 
 # =====================================================================
@@ -101,6 +106,39 @@ def get_all_paths():
     }
 
 
+def resolve_device(requested=None):
+    """Turn the configured device into one that actually exists on this machine.
+
+    'auto' picks CUDA, then Apple Silicon's MPS, then CPU. An explicit choice that is
+    unavailable falls back to CPU with a printed warning rather than silently, which
+    matters on a Mac: a bare 'mps' request would otherwise be swallowed by the
+    torch.cuda.is_available() checks the method scripts use.
+    """
+    import torch
+
+    requested = requested or DEVICE
+
+    has_cuda = torch.cuda.is_available()
+    has_mps = getattr(torch.backends, 'mps', None) is not None \
+        and torch.backends.mps.is_available()
+
+    if requested == 'auto':
+        if has_cuda:
+            return 'cuda'
+        if has_mps:
+            return 'mps'
+        return 'cpu'
+
+    if requested == 'cuda' and not has_cuda:
+        print("Warning: CUDA requested but unavailable, falling back to CPU")
+        return 'cpu'
+    if requested == 'mps' and not has_mps:
+        print("Warning: MPS requested but unavailable, falling back to CPU")
+        return 'cpu'
+
+    return requested
+
+
 def get_all_params():
     """Return the training hyperparameters consumed by the experiment entry point."""
     return {
@@ -112,7 +150,7 @@ def get_all_params():
         'learning_rate': LEARNING_RATE,
         'hidden_sizes': HIDDEN_SIZES,
         'batch_size': BATCH_SIZE,
-        'device': DEVICE,
+        'device': resolve_device(),
     }
 
 

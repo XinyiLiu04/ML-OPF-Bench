@@ -583,7 +583,7 @@ def train_pinn_acopf(
         apply_post_processing=True,
         seed=42,
         device='cuda',
-        n_cores=30
+        n_cores=8
 ):
     """Train the PINN on a random split and evaluate it on the held-out test indices."""
     global GLOBAL_PARAMS, GLOBAL_SCALERS, GLOBAL_CASE_DATA, COMPUTE_PENALTY_THIS_STEP
@@ -857,7 +857,7 @@ def train_pinn_acopf(
 if __name__ == '__main__':
     PENALTY_WEIGHT = 0.1
     PENALTY_FREQ = 1
-    N_CORES = 30
+    N_CORES = 8
     APPLY_POST_PROCESSING = True
 
     print("\n" + "=" * 70)

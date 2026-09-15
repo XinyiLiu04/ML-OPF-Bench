@@ -584,7 +584,6 @@ def acopf_pinn_experiment(
 
 
 if __name__ == "__main__":
-    # Per-branch architectures and loss weights, following the paper's Table II
     HIDDEN_SIZES_V = [256, 128]
     HIDDEN_SIZES_G = [256, 128]
     HIDDEN_SIZES_LG = [256, 128]

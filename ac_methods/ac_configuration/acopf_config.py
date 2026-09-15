@@ -13,12 +13,15 @@ ROOT_DIR = "/lambda/nfs/lxy/acopf_project/ML-OPF-Bench"
 
 DATA_SUBDIR = os.path.join("ac_dataset", "acopf_datasets")
 CONSTRAINTS_SUBDIR = os.path.join("ac_dataset", "acopf_constraints")
+DC_CONSTRAINTS_SUBDIR = os.path.join("dc_dataset", "dcopf_constraints")
 
 # Expected directory layout:
 #   ROOT_DIR/DATA_SUBDIR/<short_name>(<variance>)/<full_name>_{pd,qd,pg,qg,vm,va}.csv
+#   ROOT_DIR/DATA_SUBDIR/<short_name>(<variance>)_with_duals/<full_name>_mu_*.csv
 #   ROOT_DIR/CONSTRAINTS_SUBDIR/<short_name>/<full_name>_{bus_data,gen_data,branch_data,bus_gen_map,base_mva}.csv
-# The *_with_duals folders in the dataset carry the same primal CSVs plus dual
-# variables; nothing here reads them.
+#   ROOT_DIR/DC_CONSTRAINTS_SUBDIR/<short_name>/<full_name>_{ptdf_matrix,gen_limits,gen_costs,branch_limits,bus_gen_map,base_mva}.csv
+# Only methods that learn from dual variables read the _with_duals folder, and only
+# the sub-optimal state generator reads the DCOPF constraints.
 
 # =====================================================================
 # Case registry - add an entry here to support a new case
@@ -71,6 +74,22 @@ def get_params_path(case_key):
     """Build the path to the folder holding the case constraint CSVs."""
     case_info = get_case_info(case_key)
     return os.path.join(ROOT_DIR, CONSTRAINTS_SUBDIR, case_info['short_name'])
+
+
+def get_dc_params_path(case_key=None):
+    """Build the path to the folder holding the DCOPF constraint CSVs."""
+    case_info = get_case_info(case_key or CASE)
+    return os.path.join(ROOT_DIR, DC_CONSTRAINTS_SUBDIR, case_info['short_name'])
+
+
+def get_duals_path(case_key=None, variance=None):
+    """Build the path to the folder holding the dual-variable CSVs."""
+    case_info = get_case_info(case_key or CASE)
+    return os.path.join(
+        ROOT_DIR,
+        DATA_SUBDIR,
+        f"{case_info['short_name']}({variance or VARIANCE})_with_duals"
+    )
 
 
 def get_all_paths():

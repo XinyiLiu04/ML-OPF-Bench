@@ -64,6 +64,11 @@ def compute_mae_percentage(y_true, y_pred):
     return 100.0 * mae / mean_true
 
 
+def compute_mae_absolute(y_true, y_pred):
+    """MAE in the units of the inputs, used where a percentage is meaningless (angles)."""
+    return np.mean(np.abs(y_true - y_pred))
+
+
 def compute_cost_from_pg(pg_pu, cost_coeffs):
     """Quadratic generation cost from Pg (p.u.)."""
     cost_c2 = cost_coeffs['cost_c2']

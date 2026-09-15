@@ -185,6 +185,42 @@ def load_parameters_from_csv(case_name, params_path):
     tap_ratio = branch_data['tap_ratio'].values.astype(DTYPE)
     shift_deg = branch_data['shift_deg'].values.astype(DTYPE)
 
+    # Derived branch quantities, for methods that evaluate the power flow equations
+    # inside the loss instead of calling a solver
+    f_bus_idx = np.array([bus_id_to_idx[int(fb)] for fb in f_bus])
+    t_bus_idx = np.array([bus_id_to_idx[int(tb)] for tb in t_bus])
+
+    z_sq = np.maximum(r_pu ** 2 + x_pu ** 2, 1e-20).astype(DTYPE)
+    g_br = (r_pu / z_sq).astype(DTYPE)
+    b_br = (-x_pu / z_sq).astype(DTYPE)
+
+    # Branch admittance coefficients for the full pi-model, including line charging
+    # and the transformer tap. They are precomputed here so the flow equations reduce
+    # to indexing these arrays, rather than each method redoing the derivation:
+    #   Pf =  vi^2*Yff_g + vi*vj*( Yft_g*cos(t_ij) + Yft_b*sin(t_ij))
+    #   Qf = -vi^2*Yff_b + vi*vj*( Yft_g*sin(t_ij) - Yft_b*cos(t_ij))
+    #   Pt =  vj^2*Ytt_g + vi*vj*( Ytf_g*cos(t_ij) - Ytf_b*sin(t_ij))
+    #   Qt = -vj^2*Ytt_b + vi*vj*(-Ytf_g*sin(t_ij) - Ytf_b*cos(t_ij))
+    # With b_pu = 0, tap_ratio = 1 and shift_deg = 0 these reduce to the series-only
+    # formulas exactly.
+    tau = np.where(tap_ratio == 0, 1.0, tap_ratio).astype(np.float64)
+    shift_rad = np.deg2rad(shift_deg.astype(np.float64))
+    cos_sh = np.cos(shift_rad)
+    sin_sh = np.sin(shift_rad)
+    g_s = g_br.astype(np.float64)
+    b_s = b_br.astype(np.float64)
+    # b_pu is the total line charging susceptance, split evenly across both ends
+    b_tot = b_s + b_pu.astype(np.float64) / 2.0
+
+    Yff_g = (g_s / tau ** 2).astype(DTYPE)
+    Yff_b = (b_tot / tau ** 2).astype(DTYPE)
+    Ytt_g = g_s.astype(DTYPE)
+    Ytt_b = b_tot.astype(DTYPE)
+    Yft_g = ((-g_s * cos_sh + b_s * sin_sh) / tau).astype(DTYPE)
+    Yft_b = ((-g_s * sin_sh - b_s * cos_sh) / tau).astype(DTYPE)
+    Ytf_g = ((-g_s * cos_sh - b_s * sin_sh) / tau).astype(DTYPE)
+    Ytf_b = ((g_s * sin_sh - b_s * cos_sh) / tau).astype(DTYPE)
+
     bus_gen_map_matrix = np.zeros((n_buses, n_gen), dtype=DTYPE)
     if bus_gen_map is not None:
         gen_cols = [col for col in bus_gen_map.columns if col.startswith('gen_')]
@@ -225,12 +261,20 @@ def load_parameters_from_csv(case_name, params_path):
         'branch': {
             'f_bus': f_bus,
             't_bus': t_bus,
+            'f_bus_idx': f_bus_idx,
+            't_bus_idx': t_bus_idx,
             'r_pu': r_pu,
             'x_pu': x_pu,
             'b_pu': b_pu,
+            'g_br': g_br,
+            'b_br': b_br,
             'rate_a': rate_a,
             'tap_ratio': tap_ratio,
             'shift_deg': shift_deg,
+            'Yff_g': Yff_g, 'Yff_b': Yff_b,
+            'Yft_g': Yft_g, 'Yft_b': Yft_b,
+            'Ytf_g': Ytf_g, 'Ytf_b': Ytf_b,
+            'Ytt_g': Ytt_g, 'Ytt_b': Ytt_b,
         },
         'topology': {
             'bus_gen_map': bus_gen_map_matrix,

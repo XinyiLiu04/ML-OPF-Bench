@@ -68,7 +68,7 @@ All experiment settings live in one file, `ac_methods/ac_configuration/acopf_con
 | `CASE` | `'case30'`, `'case118'` or `'case300'` |
 | `VARIANCE` | load sampling spread, e.g. `'v=0.12'` |
 | `N_TRAIN_USE` | how many samples to draw from the case before splitting |
-| `SEED` | controls the split; **identical across methods by design** |
+| `SEED` | controls the split |
 | `N_EPOCHS_MAX`, `EARLY_STOP_PATIENCE`, `LEARNING_RATE`, `BATCH_SIZE`, `HIDDEN_SIZES` | training budget |
 | `DEVICE` | `'auto'`, `'cuda'`, `'mps'` or `'cpu'` |
 

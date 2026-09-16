@@ -29,13 +29,6 @@ pip install -r requirements.txt
 
 Core dependencies: `numpy`, `pandas`, `scipy`, `scikit-learn`, `torch`, `pypower`.
 
-Method-specific, only needed for the methods that use them:
-
-| Package | Needed by |
-| --- | --- |
-| `torch-geometric` | `gnn_main.py` |
-| `stable-baselines3`, `gymnasium` | `acopf_rl.py` |
-
 ## Getting the data
 
 Download the dataset repository, then point the code at it:

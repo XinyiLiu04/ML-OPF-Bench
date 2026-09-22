@@ -40,10 +40,6 @@ huggingface-cli download xinyi-liu/ML-OPF-Bench --repo-type dataset \
 export ML_OPF_BENCH_DATA=$PWD/ML-OPF-Bench-data
 ```
 
-`ML_OPF_BENCH_DATA` must point at the folder containing `ac_dataset/`. Without it the
-literal `ROOT_DIR` in `ac_methods/ac_configuration/acopf_config.py` is used, so the same
-checkout runs on several machines without editing any file.
-
 Verify before running:
 
 ```bash

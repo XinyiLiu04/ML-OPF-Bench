@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ACOPF configuration. Set ROOT_DIR, CASE and VARIANCE."""
+"""DCOPF configuration. Set ROOT_DIR, CASE and VARIANCE."""
 
 import os
 
@@ -8,30 +8,26 @@ import os
 # =====================================================================
 # Dataset: https://huggingface.co/datasets/xinyi-liu/ML-OPF-Bench
 # Point this at the local copy of the dataset repository, i.e. the folder that
-# contains ac_dataset/ and dc_dataset/. The environment variable wins when set, so the same
-# checkout can run on several machines without editing this file:
+# contains both ac_dataset/ and dc_dataset/. The environment variable wins when set:
 #   export ML_OPF_BENCH_DATA=/path/to/ML-OPF-Bench
 # `or` rather than a get default, so an environment variable set to an empty
 # string does not silently turn every path into a relative one
 ROOT_DIR = (os.environ.get("ML_OPF_BENCH_DATA")
             or "/Users/xinyiliu/Projects/ml-opf-bench/ML-OPF-Bench")
 
-DATA_SUBDIR = os.path.join("ac_dataset", "acopf_datasets")
-CONSTRAINTS_SUBDIR = os.path.join("ac_dataset", "acopf_constraints")
-DC_CONSTRAINTS_SUBDIR = os.path.join("dc_dataset", "dcopf_constraints")
+DATA_SUBDIR = os.path.join("dc_dataset", "dcopf_datasets")
+CONSTRAINTS_SUBDIR = os.path.join("dc_dataset", "dcopf_constraints")
 
 # Expected directory layout:
-#   ROOT_DIR/DATA_SUBDIR/<short_name>(<variance>)/<full_name>_{pd,qd,pg,qg,vm,va}.csv
-#   ROOT_DIR/DATA_SUBDIR/<short_name>(<variance>)_with_duals/<full_name>_mu_*.csv
-#   ROOT_DIR/CONSTRAINTS_SUBDIR/<short_name>/<full_name>_{bus_data,gen_data,branch_data,bus_gen_map,base_mva}.csv
-#   ROOT_DIR/DC_CONSTRAINTS_SUBDIR/<short_name>/<full_name>_{ptdf_matrix,gen_limits,gen_costs,branch_limits,bus_gen_map,base_mva}.csv
-# Only methods that learn from dual variables read the _with_duals folder, and only
-# the sub-optimal state generator reads the DCOPF constraints.
+#   ROOT_DIR/DATA_SUBDIR/<short_name>(<variance>)/<full_name>_dataset_with_duals.csv
+#   ROOT_DIR/CONSTRAINTS_SUBDIR/<short_name>/<full_name>_{gen_limits,gen_costs,branch_limits,
+#                                             ptdf_matrix,bus_gen_map,bus_ids,base_mva}.csv
 
 # =====================================================================
 # Case registry - add an entry here to support a new case
 # =====================================================================
 CASES = {
+    'case14': {'full_name': 'pglib_opf_case14_ieee', 'short_name': 'case14'},
     'case30': {'full_name': 'pglib_opf_case30_ieee', 'short_name': 'case30'},
     'case118': {'full_name': 'pglib_opf_case118_ieee', 'short_name': 'case118'},
     'case300': {'full_name': 'pglib_opf_case300_ieee', 'short_name': 'case300'},
@@ -43,13 +39,14 @@ CASES = {
 CASE = 'case30'
 VARIANCE = 'v=0.12'
 
-N_TRAIN_USE = 12000
+# Changing SEED or N_TRAIN_USE changes the test set and invalidates every collected number
+N_TRAIN_USE = 35000  # size of the shuffled pool that is split 10:1:1 into train/val/test
 N_EPOCHS_MAX = 1000
 EARLY_STOP_PATIENCE = 20
 EARLY_STOP_MIN_DELTA = 1e-6
 LEARNING_RATE = 1e-3
-HIDDEN_SIZES = [64, 32]
-BATCH_SIZE = 32  # None means full batch
+HIDDEN_SIZES = [128, 64]
+BATCH_SIZE = 64
 SEED = 42
 DEVICE = 'auto'  # 'auto', 'cuda', 'mps' or 'cpu'
 
@@ -65,36 +62,15 @@ def get_case_info(case_key):
 
 
 def get_data_path(case_key, variance):
-    """Build the path to <case>_pd.csv; sibling files live in the same folder."""
+    """Build the path to the single sample CSV, which also carries the duals."""
     case_info = get_case_info(case_key)
-    return os.path.join(
-        ROOT_DIR,
-        DATA_SUBDIR,
-        f"{case_info['short_name']}({variance})",
-        f"{case_info['full_name']}_pd.csv"
-    )
+    return os.path.join(ROOT_DIR, DATA_SUBDIR, f"{case_info['short_name']}({variance})",
+                        f"{case_info['full_name']}_dataset_with_duals.csv")
 
 
 def get_params_path(case_key):
     """Build the path to the folder holding the case constraint CSVs."""
-    case_info = get_case_info(case_key)
-    return os.path.join(ROOT_DIR, CONSTRAINTS_SUBDIR, case_info['short_name'])
-
-
-def get_dc_params_path(case_key=None):
-    """Build the path to the folder holding the DCOPF constraint CSVs."""
-    case_info = get_case_info(case_key or CASE)
-    return os.path.join(ROOT_DIR, DC_CONSTRAINTS_SUBDIR, case_info['short_name'])
-
-
-def get_duals_path(case_key=None, variance=None):
-    """Build the path to the folder holding the dual-variable CSVs."""
-    case_info = get_case_info(case_key or CASE)
-    return os.path.join(
-        ROOT_DIR,
-        DATA_SUBDIR,
-        f"{case_info['short_name']}({variance or VARIANCE})_with_duals"
-    )
+    return os.path.join(ROOT_DIR, CONSTRAINTS_SUBDIR, get_case_info(case_key)['short_name'])
 
 
 def get_all_paths():
@@ -107,36 +83,33 @@ def get_all_paths():
 
 
 def resolve_device(requested=None):
-    """Turn the configured device into one that actually exists on this machine.
-
-    'auto' picks CUDA, then Apple Silicon's MPS, then CPU. An explicit choice that is
-    unavailable falls back to CPU with a printed warning rather than silently, which
-    matters on a Mac: a bare 'mps' request would otherwise be swallowed by the
-    torch.cuda.is_available() checks the method scripts use.
-    """
+    """Map 'auto' to cuda -> mps -> cpu; an unavailable explicit choice falls back to cpu with a warning."""
     import torch
 
     requested = requested or DEVICE
-
-    has_cuda = torch.cuda.is_available()
-    has_mps = getattr(torch.backends, 'mps', None) is not None \
-        and torch.backends.mps.is_available()
-
+    available = {
+        'cuda': torch.cuda.is_available(),
+        'mps': getattr(torch.backends, 'mps', None) is not None and torch.backends.mps.is_available(),
+        'cpu': True,
+    }
     if requested == 'auto':
-        if has_cuda:
-            return 'cuda'
-        if has_mps:
-            return 'mps'
+        return next(d for d in ('cuda', 'mps', 'cpu') if available[d])
+    if requested not in available:
+        raise ValueError(f"Unknown device '{requested}', expected one of auto/cuda/mps/cpu")
+    if not available[requested]:
+        print(f"Warning: {requested.upper()} requested but unavailable, falling back to CPU")
         return 'cpu'
-
-    if requested == 'cuda' and not has_cuda:
-        print("Warning: CUDA requested but unavailable, falling back to CPU")
-        return 'cpu'
-    if requested == 'mps' and not has_mps:
-        print("Warning: MPS requested but unavailable, falling back to CPU")
-        return 'cpu'
-
     return requested
+
+
+def synchronize(device):
+    """Block until queued kernels finish, so wall-clock timings cover the actual computation."""
+    import torch
+
+    if device.type == 'cuda':
+        torch.cuda.synchronize()
+    elif device.type == 'mps':
+        torch.mps.synchronize()
 
 
 def get_all_params():
@@ -183,13 +156,6 @@ if __name__ == "__main__":
 
     print("\nPath Verification:")
     paths = get_all_paths()
-
-    if os.path.exists(paths['data_path']):
-        print(f"[OK] Data found: {paths['data_path']}")
-    else:
-        print(f"[MISSING] Data not found: {paths['data_path']}")
-
-    if os.path.exists(paths['params_path']):
-        print(f"[OK] Params found: {paths['params_path']}")
-    else:
-        print(f"[MISSING] Params not found: {paths['params_path']}")
+    for key in ('data_path', 'params_path'):
+        status = "OK" if os.path.exists(paths[key]) else "MISSING"
+        print(f"[{status}] {key}: {paths[key]}")

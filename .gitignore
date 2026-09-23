@@ -14,3 +14,11 @@ dc_dataset/
 
 # keys
 .env
+
+/data_generalization/README.md
+/data_generalization/ACOPF Constraints with duals.ipynb
+/data_generalization/ACOPF Constraints.ipynb
+/data_generalization/ACOPF dataset.ipynb
+/data_generalization/DCOPF Constraints with dual.ipynb
+/data_generalization/DCOPF Constraints.ipynb
+/data_generalization/DCOPF Dataset.ipynb

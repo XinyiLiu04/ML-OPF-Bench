@@ -79,6 +79,17 @@ class DCTensors:
         return torch.relu(self.flows(pg, pd_bus).abs() - self.rate)
 
 
+def minmax_inverse(scaler, device):
+    """Differentiable twin of scaler.inverse_transform, using sklearn's own min_ and scale_.
+
+    data_min_ + y * data_range_ disagrees with sklearn on zero-range columns (e.g. units with
+    pg_min == pg_max), where sklearn substitutes a unit scale; this form matches it exactly.
+    """
+    shift = torch.tensor(scaler.min_, dtype=torch.float32, device=device)
+    scale = torch.tensor(scaler.scale_, dtype=torch.float32, device=device)
+    return lambda y: (y - shift) / scale
+
+
 def train_with_early_stopping(model, optimizer, train_tensors, batch_loss, val_loss,
                               n_epochs, batch_size, patience, min_delta,
                               after_step=None, epoch_log=None, min_batch=1):

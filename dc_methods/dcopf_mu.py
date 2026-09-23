@@ -12,7 +12,9 @@ from dc_configuration.dcopf_data_setup import (
     load_parameters_from_csv, load_samples, prepare_data_splits, reconstruct_full_pg,
 )
 from dc_configuration.dcopf_evaluation_metrics import evaluate_dispatch, print_metrics
-from dc_configuration.dcopf_torch_utils import DCTensors, MLP, measure_latency, train_with_early_stopping
+from dc_configuration.dcopf_torch_utils import (
+    DCTensors, MLP, measure_latency, minmax_inverse, train_with_early_stopping,
+)
 
 
 def mu_experiment(case_name, params_path, data_path,
@@ -30,8 +32,7 @@ def mu_experiment(case_name, params_path, data_path,
 
     x_scaler = MinMaxScaler().fit(pd_bus[train_idx])
     y_scaler = MinMaxScaler().fit(pg[train_idx][:, non_slack])
-    y_min = torch.tensor(y_scaler.data_min_, dtype=torch.float32, device=device)
-    y_range = torch.tensor(y_scaler.data_range_, dtype=torch.float32, device=device)
+    decode_pg = minmax_inverse(y_scaler, device)
 
     def to_tensor(a):
         return torch.tensor(a, dtype=torch.float32, device=device)
@@ -50,7 +51,7 @@ def mu_experiment(case_name, params_path, data_path,
     def batch_loss(m, batch):
         x, y, pd_b = batch
         pred = m(x)
-        pg_full = net.full_pg(pred * y_range + y_min, pd_b)
+        pg_full = net.full_pg(decode_pg(pred), pd_b)
         # Violation degrees stay in the graph: the multiplier term must reach the weights,
         # otherwise the method reduces to plain MSE training
         nu = {

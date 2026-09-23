@@ -9,21 +9,7 @@ Within each problem, all method families are implemented against one interface. 
 predicts generator setpoints and is scored with the same metrics: prediction error against
 the reference OPF solution, constraint violation by category, and cost optimality gap.
 
-- **ACOPF.** A power flow is solved at the predicted setpoints, and the power flow
-  convergence rate is reported alongside the other metrics.
-- **DCOPF.** Branch flows are an exact linear function of the dispatch through the PTDF
-  matrix, so every prediction is evaluated algebraically. There is no power flow step and
-  no convergence rate; the power balance error is reported instead.
-
 Dataset: [`xinyi-liu/ML-OPF-Bench`](https://huggingface.co/datasets/xinyi-liu/ML-OPF-Bench)
-
-- **Convergence rate is reported with its solver.** AC methods that solve a real
-  Newton-Raphson power flow report a real convergence rate. AC methods whose output is an
-  algebraic solution report `n/a`.
-- **Inference time measures the method, not the pipeline.** For most methods it is the
-  network forward pass. Where a solver step is part of the method it is included: the one
-  or two power flows of AC Q-correction, the QP projection of DC DeepOPF, and the recovery
-  LPs of DC active-set classification. Each script states what it timed.
 
 ## Installation
 
@@ -32,9 +18,6 @@ git clone https://github.com/<user>/ML-OPF-Bench.git
 cd ML-OPF-Bench
 pip install -r requirements.txt
 ```
-
-Core dependencies: `numpy`, `pandas`, `scipy`, `scikit-learn`, `torch`, `pypower`.
-The DC GNN additionally needs `torch_geometric`.
 
 ## Getting the data
 
@@ -49,16 +32,6 @@ export ML_OPF_BENCH_DATA=$PWD/ML-OPF-Bench-data
 
 `ML_OPF_BENCH_DATA` must point at the folder containing both `ac_dataset/` and
 `dc_dataset/`; the AC and DC code read from the same root.
-
-Verify before running:
-
-```bash
-python ac_methods/ac_configuration/acopf_config.py
-python dc_methods/dc_configuration/dcopf_config.py
-```
-
-Each prints the resolved configuration and checks the data and constraint paths,
-reporting `[OK]` or `[MISSING]` for each.
 
 ## Running a method
 
@@ -85,10 +58,6 @@ problems have different constraint schemas and metrics, but expose the same sett
 Method-specific hyperparameters are constants at the top of each method script's
 `__main__`, not in the config, so the shared config stays the same for every method. A
 method that receives a shared setting it does not use prints that it is ignoring it.
-
-Changing `SEED` or `N_TRAIN_USE` changes the split, which means **every method must be
-re-run** before its numbers are comparable again. Fix these two before starting a
-production sweep.
 
 ## Adding a case
 
@@ -127,39 +96,24 @@ dc_methods/
 │   ├── dcopf_evaluation_metrics.py  violations, cost and the single scoring function
 │   └── dcopf_torch_utils.py       torch DC physics, MLP, early-stopping loop, latency timing
 │
-├── dcopf_lr.py        linear regression
-├── dcopf_dnn.py       supervised MLP
-├── dcopf_mu.py        Lagrangian dual training (Fioretto et al.)
-├── dcopf_cp_qp.py     DeepOPF with QP projection (Pan et al.)
-├── dcopf_as.py        active-set classification (Deka & Misra)
-├── dcopf_ngt.py       DeepOPF-NGT, unsupervised (Huang et al.)
-├── dcopf_engt.py      extended DeepOPF-NGT, semi-supervised
-├── dcopf_gnn.py       spectral GNN (Owerko et al.)
-└── dcopf_kkt_pinn.py  KKT-informed PINN with collocation points (Nellikkath & Chatzivasileiadis)
+├── dcopf_lr.py        
+├── dcopf_dnn.py      
+├── dcopf_mu.py        
+├── dcopf_cp_qp.py     
+├── dcopf_as.py        
+├── dcopf_ngt.py       
+├── dcopf_engt.py      
+├── dcopf_gnn.py       
+└── dcopf_kkt_pinn.py  
 ```
-
-Method scripts sit directly in `ac_methods/` or `dc_methods/`, so Python puts that
-directory on the path and `from ac_configuration import ...` or
-`from dc_configuration import ...` resolves no matter which directory you launch from.
-The DC side has no reinforcement-learning method.
-
-## Model selection
-
-- **Supervised methods** restore the checkpoint with the best validation loss and stop
-  early after `EARLY_STOP_PATIENCE` epochs without improvement.
-- **Unsupervised methods** (e.g. DC DeepOPF-NGT) have no label to overfit, so they train
-  for the full budget and return the final epoch. A unit-weight validation score is
-  printed for inspection only; the training objective cannot be used for selection
-  because its adaptive weights change during training.
 
 ## Metrics
 
 ### ACOPF
 
 `evaluate_acopf_predictions` returns these keys. Accuracy, cost and violation figures are
-averaged over **converged samples only**; non-converged samples carry `NaN` and are
-excluded rather than filled with a sentinel, which would otherwise dominate any mean
-taken on a case with a low convergence rate.
+averaged over converged samples only; non-converged samples carry `NaN` and are
+excluded.
 
 **Accuracy** — `mae_pg_non_slack_percent`, `mae_pg_all_percent`, `mae_pg_slack_percent`,
 `mae_vm_percent`, `mae_qg_percent`, `mae_va_deg`
@@ -172,19 +126,18 @@ taken on a case with a low convergence rate.
 
 **Coverage** — `convergence_rate_percent`, `n_converged`, `n_samples`
 
-Three conventions worth knowing when reading the numbers:
+Worth knowing when reading the numbers:
 
-- **Slack Pg is never predicted.** It is whatever the power flow assigns, so it absorbs
+- Slack Pg is never predicted. It is whatever the power flow assigns, so it absorbs
   the imbalance left by the predicted setpoints. Its violation is reported separately
   from the non-slack generators because it reflects a different failure mode.
-- **`mae_vm_percent` covers generator buses only**, so methods that predict voltage at
+- `mae_vm_percent` covers generator buses only, so methods that predict voltage at
   every bus and methods that predict it only at generators stay comparable.
-- **`mean_max_branch_viol_pu` is relative**: 1.0 means 100% over the thermal rating.
+- `mean_max_branch_viol_pu` is relative: 1.0 means 100% over the thermal rating.
 
 ### DCOPF
 
-`evaluate_dispatch` returns these keys, averaged over **every test sample**; with no power
-flow step there is nothing to fail to converge.
+`evaluate_dispatch` returns these keys, averaged over every test sample.
 
 **Accuracy** — `mae_pg_non_slack`, `mae_pg_slack` (percent of the mean absolute true value)
 
@@ -197,19 +150,12 @@ the rating), `viol_balance` (p.u.)
 
 Conventions:
 
-- **Slack Pg is reconstructed from the power balance**: the total load minus the
+- Slack Pg is reconstructed from the power balance: the total load minus the
   predicted non-slack dispatch, split evenly among the generators at the slack bus. This
   makes `viol_balance` zero for methods that predict only non-slack units, and it is why
   the slack violation is reported separately.
-- **Violations are mean of max**: the worst generator or branch of each sample, averaged
+- Violations are mean of max: the worst generator or branch of each sample, averaged
   over samples. `viol_branch` is relative, so 0.1 means 10% over the rating.
-- **Only rated branches are constrained**: a branch counts when its `rate_a` is below
-  `1e10`, the same threshold the data generator used, so evaluation and the reference
-  solutions agree on which limits exist.
-- **Some methods report extras** after the standard block, such as `qp_failure_rate`
-  for DeepOPF, or `top1_accuracy`, `test_unseen_rate` and `recovery_failure_rate` for
-  active-set classification. DeepOPF prints its results with and without the QP
-  projection, active-set classification with Top-1 and Top-K selection.
 
 ## DC data format
 

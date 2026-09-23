@@ -65,3 +65,4 @@ CASES = {
     'case57': {'full_name': 'pglib_opf_case57_ieee', 'short_name': 'case57'},
 }
 ```
+## License and citation

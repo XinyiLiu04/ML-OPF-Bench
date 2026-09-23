@@ -40,7 +40,7 @@ CASES = {
 # =====================================================================
 # Experiment configuration
 # =====================================================================
-CASE = 'case30'
+CASE = 'case300'
 VARIANCE = 'v=0.12'
 
 N_TRAIN_USE = 12000
@@ -48,8 +48,8 @@ N_EPOCHS_MAX = 1000
 EARLY_STOP_PATIENCE = 20
 EARLY_STOP_MIN_DELTA = 1e-6
 LEARNING_RATE = 1e-3
-HIDDEN_SIZES = [64, 32]
-BATCH_SIZE = 32  # None means full batch
+HIDDEN_SIZES = [512, 256]
+BATCH_SIZE = 128  # None means full batch
 SEED = 42
 DEVICE = 'auto'  # 'auto', 'cuda', 'mps' or 'cpu'
 

@@ -11,8 +11,13 @@ from collections import defaultdict
 
 from pypower.runpf import runpf
 
-# The shared modules live in ac_configuration/, a subpackage of this script's
-# directory, so they resolve regardless of the working directory.
+import os
+
+# ac_configuration/ sits in ac_methods/. Appending the parent of this script's own
+# directory makes it importable whether this file is directly in ac_methods/ or one
+# level down in a grouped method folder, and from any working directory.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 try:
     from ac_configuration import acopf_config
     from ac_configuration.acopf_data_setup import (
@@ -22,7 +27,11 @@ try:
         reconstruct_full_pg
     )
     from ac_configuration.acopf_evaluation_metrics import evaluate_acopf_predictions
-    from ac_configuration.acopf_pypower import get_ppopt, load_case_from_csv
+    from ac_configuration.acopf_pypower import (
+        get_ppopt,
+        load_case_from_csv,
+        build_mpc_for_sample
+    )
 except ImportError as e:
     print(f"Error: Unable to import from ac_configuration/ ({e})")
     sys.exit(1)
@@ -86,33 +95,6 @@ def inverse_parametrize(alpha_beta_pred, params):
     return pg_non_slack, vm_gen
 
 
-def build_mpc_for_sample(pd, qd, pg_non_slack, params):
-    """Copy the base case and apply one sample's loads and non-slack Pg setpoints."""
-    BASE_MVA = params['general']['BASE_MVA']
-
-    mpc = {
-        'version': GLOBAL_CASE_DATA['version'],
-        'baseMVA': BASE_MVA,
-        'bus': GLOBAL_CASE_DATA['bus'].copy(),
-        'gen': GLOBAL_CASE_DATA['gen'].copy(),
-        'branch': GLOBAL_CASE_DATA['branch'].copy(),
-        'gencost': GLOBAL_CASE_DATA['gencost'],
-    }
-
-    bus_id_to_idx = params['general']['bus_id_to_idx']
-    for i, bus_id in enumerate(params['general']['load_bus_ids']):
-        bus_idx = bus_id_to_idx.get(int(bus_id))
-        if bus_idx is not None:
-            mpc['bus'][bus_idx, 2] = pd[i] * BASE_MVA
-            mpc['bus'][bus_idx, 3] = qd[i] * BASE_MVA
-
-    # Only non-slack Pg is set; slack Pg is left for the solver to determine
-    for i, gen_idx in enumerate(params['general']['non_slack_gen_idx']):
-        mpc['gen'][gen_idx, 1] = pg_non_slack[i] * BASE_MVA
-
-    return mpc
-
-
 def solve_pf_with_qg_correction(pd, qd, pg_non_slack, vm_gen, params):
     """Solve the power flow, then re-solve with Qg clipped at buses that exceeded their limits.
 
@@ -128,7 +110,7 @@ def solve_pf_with_qg_correction(pd, qd, pg_non_slack, vm_gen, params):
 
     # Stage 1: power flow at the predicted setpoints
     t0 = time.perf_counter()
-    mpc1 = build_mpc_for_sample(pd, qd, pg_non_slack, params)
+    mpc1 = build_mpc_for_sample(pd, qd, pg_non_slack, params, GLOBAL_CASE_DATA)
     for i in range(n_gen):
         mpc1['gen'][i, 5] = vm_gen[i]
 
@@ -156,7 +138,7 @@ def solve_pf_with_qg_correction(pd, qd, pg_non_slack, vm_gen, params):
     # from PV to PQ, so the re-solve gives up the Vm setpoint to respect the Qg limit
     t0 = time.perf_counter()
     qg_clipped_pu = np.clip(qg_pf_pu, qg_min, qg_max)
-    mpc2 = build_mpc_for_sample(pd, qd, pg_non_slack, params)
+    mpc2 = build_mpc_for_sample(pd, qd, pg_non_slack, params, GLOBAL_CASE_DATA)
 
     for i in range(n_gen):
         if not violation_mask[i]:

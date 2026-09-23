@@ -6,10 +6,13 @@ import time
 import sys
 from sklearn.linear_model import LinearRegression
 
-from pypower.runpf import runpf
+import os
 
-# The shared modules live in ac_configuration/, a subpackage of this script's
-# directory, so they resolve regardless of the working directory.
+# ac_configuration/ sits in ac_methods/. Appending the parent of this script's own
+# directory makes it importable whether this file is directly in ac_methods/ or one
+# level down in a grouped method folder, and from any working directory.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 try:
     from ac_configuration import acopf_config
     from ac_configuration.acopf_data_setup import (
@@ -19,44 +22,12 @@ try:
         reconstruct_full_pg
     )
     from ac_configuration.acopf_evaluation_metrics import evaluate_acopf_predictions
-    from ac_configuration.acopf_pypower import get_ppopt, load_case_from_csv
+    from ac_configuration.acopf_pypower import load_case_from_csv, solve_pf_setpoints
 except ImportError as e:
     print(f"Error: Unable to import from ac_configuration/ ({e})")
     sys.exit(1)
 
 GLOBAL_CASE_DATA = None
-
-
-def solve_pf_custom_optimized(pd, qd, pg_non_slack, vm_gen, params):
-    """Run a power flow with the predicted setpoints; the slack bus absorbs the imbalance."""
-    global GLOBAL_CASE_DATA
-    BASE_MVA = params['general']['BASE_MVA']
-
-    mpc_pf = {
-        'version': GLOBAL_CASE_DATA['version'],
-        'baseMVA': GLOBAL_CASE_DATA['baseMVA'],
-        'bus': GLOBAL_CASE_DATA['bus'].copy(),
-        'gen': GLOBAL_CASE_DATA['gen'].copy(),
-        'branch': GLOBAL_CASE_DATA['branch'],
-        'gencost': GLOBAL_CASE_DATA['gencost']
-    }
-
-    load_bus_ids = params['general']['load_bus_ids']
-    bus_id_to_idx = params['general']['bus_id_to_idx']
-    for i, bus_id in enumerate(load_bus_ids):
-        bus_idx = bus_id_to_idx.get(int(bus_id))
-        if bus_idx is not None:
-            mpc_pf["bus"][bus_idx, 2] = pd[i] * BASE_MVA
-            mpc_pf["bus"][bus_idx, 3] = qd[i] * BASE_MVA
-
-    # Only non-slack Pg is set; slack Pg is left for the solver to determine
-    for i, gen_idx in enumerate(params['general']['non_slack_gen_idx']):
-        mpc_pf["gen"][gen_idx, 1] = pg_non_slack[i] * BASE_MVA
-
-    for i in range(params['general']['n_gen']):
-        mpc_pf["gen"][i, 5] = vm_gen[i]
-
-    return runpf(mpc_pf, get_ppopt())
 
 
 class LinearRegressionACOPF:
@@ -142,8 +113,9 @@ def evaluate_model(model, X, indices, raw_data, params, scalers, split_name, ver
 
     for i in range(n_samples):
         try:
-            r1_pf = solve_pf_custom_optimized(
-                pd_pu[i], qd_pu[i], y_pred_pg_non_slack[i], y_pred_vm_gen[i], params
+            r1_pf = solve_pf_setpoints(
+                pd_pu[i], qd_pu[i], y_pred_pg_non_slack[i], y_pred_vm_gen[i],
+                params, GLOBAL_CASE_DATA
             )
             pf_results_list.append(r1_pf)
             converge_flags.append(r1_pf[0]['success'])

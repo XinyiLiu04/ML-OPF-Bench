@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Shared pieces of the DeepOPF-NGT family.
+"""Shared pieces of the DeepOPF-NGT family (Huang, Chen & Low, IEEE TPWRS 2024).
 
 All four variants use the same network and the same map from the sigmoid output to
 physical voltage; they differ only in how the loss terms are weighted and whether any
@@ -9,6 +9,14 @@ labelled data is used.
 import numpy as np
 import torch
 import torch.nn as nn
+import os
+import sys
+
+# ac_configuration/ sits in ac_methods/. Appending the parent of this script's own
+# directory makes it importable whether this file is directly in ac_methods/ or one
+# level down in a grouped method folder, and from any working directory.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 from ac_configuration.acopf_evaluation_metrics import evaluate_acopf_predictions
 from ac_configuration.acopf_pypower import solve_pf_setpoints

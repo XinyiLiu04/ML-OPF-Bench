@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Active set classification for ACOPF, extending Deka to AC.
+"""Active set classification for ACOPF, extending Deka & Misra (arXiv:1902.05607) to AC.
 
 A classifier maps loads to the active constraint set; Pg is then recovered by an LP over
 the free generators and Vm is read off the active voltage bounds, followed by a power flow.
@@ -15,8 +15,13 @@ from collections import Counter
 
 from scipy.optimize import linprog
 
-# The shared modules live in ac_configuration/, a subpackage of this script's
-# directory, so they resolve regardless of the working directory.
+import os
+
+# ac_configuration/ sits in ac_methods/. Appending the parent of this script's own
+# directory makes it importable whether this file is directly in ac_methods/ or one
+# level down in a grouped method folder, and from any working directory.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 try:
     from ac_configuration import acopf_config
     from ac_configuration.acopf_data_setup import (

@@ -6,10 +6,14 @@ import numpy as np
 import torch
 import torch.optim as optim
 import time
+import os
 import sys
 
-# The shared modules live in ac_configuration/, a subpackage of this script's
-# directory, so they resolve regardless of the working directory.
+# ac_configuration/ sits in ac_methods/. Appending the parent of this script's own
+# directory makes it importable whether this file is directly in ac_methods/ or one
+# level down in a grouped method folder, and from any working directory.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 try:
     from ac_configuration import acopf_config
     from ac_configuration.acopf_data_setup import (

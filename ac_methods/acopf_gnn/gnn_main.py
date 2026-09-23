@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Spectral GNN for ACOPF: supervised regression from the sub-optimal state.
+"""Spectral GNN baseline for ACOPF: supervised regression from the sub-optimal state.
 
 Run generate_subopt_state.py first to produce the _subopt_*.csv files next to the
 sample data, then run this script.
@@ -15,8 +15,11 @@ import sys
 
 from sklearn.preprocessing import MinMaxScaler
 
-# The shared modules live in ac_configuration/, a subpackage of this script's
-# directory, so they resolve regardless of the working directory.
+# ac_configuration/ sits in ac_methods/. Appending the parent of this script's own
+# directory makes it importable whether this file is directly in ac_methods/ or one
+# level down in a grouped method folder, and from any working directory.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 try:
     from ac_configuration import acopf_config
     from ac_configuration.acopf_data_setup import (
@@ -340,10 +343,10 @@ def spectral_gnn_acopf_experiment(
 
 
 if __name__ == "__main__":
-    GNN_F1 = 512  
-    GNN_F2 = 256  
+    GNN_F1 = 512  # paper: 128
+    GNN_F2 = 256  # paper: 64
     GNN_K = 4
-    PREDICT_VM = False  
+    PREDICT_VM = False  # paper predicts pg only
 
     print("\n" + "=" * 70)
     print("Loading Configuration")

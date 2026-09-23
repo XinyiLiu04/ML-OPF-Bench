@@ -17,8 +17,13 @@ import sys
 
 from sklearn.preprocessing import MinMaxScaler
 
-# The shared modules live in ac_configuration/, a subpackage of this script's
-# directory, so they resolve regardless of the working directory.
+import os
+
+# ac_configuration/ sits in ac_methods/. Appending the parent of this script's own
+# directory makes it importable whether this file is directly in ac_methods/ or one
+# level down in a grouped method folder, and from any working directory.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 try:
     from ac_configuration import acopf_config
     from ac_configuration.acopf_data_setup import (
@@ -757,7 +762,7 @@ def lagrangian_acopf_experiment(
 
 
 if __name__ == "__main__":
-    LAGRANGIAN_LR = 0.01   
+    LAGRANGIAN_LR = 0.01   # paper: rho = 0.01
     LAMBDA_MAX = 100.0
 
     print("\n" + "=" * 80)

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""DeepOPF for ACOPF: MSE loss plus a zero-order estimated constraint penalty,
+"""DeepOPF (PINN) for ACOPF: MSE loss plus a zero-order estimated constraint penalty,
 with optional warm-start OPF recovery for infeasible predictions."""
 
 import sys
@@ -17,8 +17,13 @@ from pypower.idx_bus import VMAX, VMIN, VM
 from pypower.idx_gen import PG, QG, VG, QMAX, QMIN, PMAX, PMIN, GEN_STATUS
 from pypower.idx_brch import RATE_A, PF, QF, PT, QT
 
-# The shared modules live in ac_configuration/, a subpackage of this script's
-# directory, so they resolve regardless of the working directory.
+import os
+
+# ac_configuration/ sits in ac_methods/. Appending the parent of this script's own
+# directory makes it importable whether this file is directly in ac_methods/ or one
+# level down in a grouped method folder, and from any working directory.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 try:
     from ac_configuration import acopf_config
     from ac_configuration.acopf_data_setup import (
@@ -583,7 +588,7 @@ def train_pinn_acopf(
         apply_post_processing=True,
         seed=42,
         device='cuda',
-        n_cores=8
+        n_cores=30
 ):
     """Train the PINN on a random split and evaluate it on the held-out test indices."""
     global GLOBAL_PARAMS, GLOBAL_SCALERS, GLOBAL_CASE_DATA, COMPUTE_PENALTY_THIS_STEP
@@ -857,7 +862,7 @@ def train_pinn_acopf(
 if __name__ == '__main__':
     PENALTY_WEIGHT = 0.1
     PENALTY_FREQ = 1
-    N_CORES = 8
+    N_CORES = 30
     APPLY_POST_PROCESSING = True
 
     print("\n" + "=" * 70)

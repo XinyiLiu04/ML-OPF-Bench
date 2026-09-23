@@ -1,19 +1,5 @@
 # -*- coding: utf-8 -*-
 """Semi-supervised ACOPF, DeepOPF-NGT with reshaped losses and EMA-scheduled weights.
-
-Same two-step epoch as paper_semi_supervised_acopf.py: a supervised pass over a small
-labelled subset, then an unsupervised pass over the whole training split. It inherits
-the variant's loss reshaping, EMA weight schedule and gradient clipping from
-unsupervised_learning_acopf.py.
-
-Two differences from the paper version worth knowing when comparing the two:
-  - the supervised error is taken in the normalized (0, 1) output domain rather than in
-    physical units, so voltage magnitude and angle contribute on a common scale
-  - the constraint terms inside the supervised step are normalized by the same epoch-one
-    references the unsupervised step uses, so k_v trades off against comparable numbers
-
-Predictions are verified with a real power flow, so the convergence rate is a
-Newton-Raphson rate and is comparable with the other benchmark methods.
 """
 
 import numpy as np
@@ -21,10 +7,14 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import time
+import os
 import sys
 
-# The shared modules live in ac_configuration/, a subpackage of this script's
-# directory, so they resolve regardless of the working directory.
+# ac_configuration/ sits in ac_methods/. Appending the parent of this script's own
+# directory makes it importable whether this file is directly in ac_methods/ or one
+# level down in a grouped method folder, and from any working directory.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 try:
     from ac_configuration import acopf_config
     from ac_configuration.acopf_data_setup import (

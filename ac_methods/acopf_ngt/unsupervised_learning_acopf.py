@@ -1,17 +1,5 @@
 # -*- coding: utf-8 -*-
 """Unsupervised ACOPF, DeepOPF-NGT with reshaped losses and EMA-scheduled weights.
-
-Same method as paper_unsupervised_acopf.py, with three changes aimed at making training
-behave on larger cases:
-
-  - the cost term is evaluated on clamped Pg plus a marginal-cost term outside the
-    bounds, so the optimizer cannot chase a low cost by driving Pg out of range
-  - every loss is normalized by its epoch-one magnitude and the constraint weights are
-    EMA smoothed with satisfied and violated regimes, instead of the plain Eq. (12) ratio
-  - gradients are norm clipped
-
-Predictions are also verified with a real power flow, so the convergence rate reported
-here is a Newton-Raphson rate and is comparable with the other benchmark methods.
 """
 
 import numpy as np
@@ -19,10 +7,14 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import time
+import os
 import sys
 
-# The shared modules live in ac_configuration/, a subpackage of this script's
-# directory, so they resolve regardless of the working directory.
+# ac_configuration/ sits in ac_methods/. Appending the parent of this script's own
+# directory makes it importable whether this file is directly in ac_methods/ or one
+# level down in a grouped method folder, and from any working directory.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 try:
     from ac_configuration import acopf_config
     from ac_configuration.acopf_data_setup import (

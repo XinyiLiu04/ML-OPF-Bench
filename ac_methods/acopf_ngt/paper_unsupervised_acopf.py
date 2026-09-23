@@ -1,15 +1,23 @@
 # -*- coding: utf-8 -*-
 """DeepOPF-NGT, unsupervised ACOPF, Algorithm 1 of Huang, Chen & Low (IEEE TPWRS 2024).
+
+No ground-truth solutions are used. The network predicts voltage at the non-ZIB buses,
+the algebraic power flow reconstructs everything else, and the loss is the generation
+cost plus weighted constraint violations. 
 """
 
 import numpy as np
 import torch
 import torch.optim as optim
 import time
+import os
 import sys
 
-# The shared modules live in ac_configuration/, a subpackage of this script's
-# directory, so they resolve regardless of the working directory.
+# ac_configuration/ sits in ac_methods/. Appending the parent of this script's own
+# directory makes it importable whether this file is directly in ac_methods/ or one
+# level down in a grouped method folder, and from any working directory.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 try:
     from ac_configuration import acopf_config
     from ac_configuration.acopf_data_setup import (

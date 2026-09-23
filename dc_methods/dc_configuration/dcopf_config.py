@@ -40,13 +40,13 @@ CASE = 'case30'
 VARIANCE = 'v=0.12'
 
 # Changing SEED or N_TRAIN_USE changes the test set and invalidates every collected number
-N_TRAIN_USE = 35000  # size of the shuffled pool that is split 10:1:1 into train/val/test
+N_TRAIN_USE = 12000  # size of the shuffled pool that is split 10:1:1 into train/val/test
 N_EPOCHS_MAX = 1000
 EARLY_STOP_PATIENCE = 20
 EARLY_STOP_MIN_DELTA = 1e-6
 LEARNING_RATE = 1e-3
-HIDDEN_SIZES = [128, 64]
-BATCH_SIZE = 64
+HIDDEN_SIZES = [256, 128]
+BATCH_SIZE = 128
 SEED = 42
 DEVICE = 'auto'  # 'auto', 'cuda', 'mps' or 'cpu'
 

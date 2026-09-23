@@ -17,8 +17,13 @@ from gymnasium import spaces
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 
-# The shared modules live in ac_configuration/, a subpackage of this script's
-# directory, so they resolve regardless of the working directory.
+import os
+
+# ac_configuration/ sits in ac_methods/. Appending the parent of this script's own
+# directory makes it importable whether this file is directly in ac_methods/ or one
+# level down in a grouped method folder, and from any working directory.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 try:
     from ac_configuration import acopf_config
     from ac_configuration.acopf_data_setup import (
@@ -543,7 +548,7 @@ def acopf_rl_experiment(
 
 
 if __name__ == "__main__":
-    TOTAL_TIMESTEPS = 20000   # None derives it from N_EPOCHS_MAX; see the printed count
+    TOTAL_TIMESTEPS = None   # None derives it from N_EPOCHS_MAX; see the printed count
     PENALTY_WEIGHT = 0.5
     ACTION_BOUNDS = 'dataset'   # or 'physical'
     N_SCALING_PROBES = 500

@@ -143,3 +143,28 @@ def reconstruct_full_pg(pg_non_slack, pd_bus, params):
     residual = pd_bus.sum(axis=1) - pg_non_slack.sum(axis=1)
     pg[:, general['slack_gen_idx']] = (residual / len(general['slack_gen_idx']))[:, None]
     return pg
+
+
+def load_duals(data_path, params):
+    """Generator-bound and line-limit multipliers, columns aligned with gen_ids and constrained branches.
+
+    The generator writes these already sign-normalized, so every multiplier is nonnegative and
+    "active" means "> threshold" for all four families; no negation is needed, unlike the AC duals.
+    Line multipliers exist only for constrained branches, in branch_limits order.
+    """
+    general, c = params['general'], params['constraints']
+    gen_ids = general['gen_ids']
+    branch_ids = general['branch_ids'][c['constrained_branches']]
+    columns = {
+        'mu_g_min': [f"mu_g_min_{g}" for g in gen_ids],
+        'mu_g_max': [f"mu_g_max_{g}" for g in gen_ids],
+        'mu_line_max': [f"mu_line_max_{b}" for b in branch_ids],
+        'mu_line_min': [f"mu_line_min_{b}" for b in branch_ids],
+    }
+    wanted = [col for cols in columns.values() for col in cols]
+    available = set(pd.read_csv(data_path, nrows=0).columns)
+    missing = [col for col in wanted if col not in available]
+    if missing:
+        raise ValueError(f"{len(missing)} dual columns missing from {data_path}, e.g. {missing[:5]}")
+    df = pd.read_csv(data_path, usecols=wanted)
+    return {name: df[cols].to_numpy(dtype=np.float64) for name, cols in columns.items()}

@@ -15,6 +15,10 @@ dc_dataset/
 # keys
 .env
 
+# DC-side RL is not part of the release
+/dc_methods/dcopf_rl.py
+/dc_methods/reward.py
+
 /data_generalization/README.md
 /data_generalization/ACOPF Constraints with duals.ipynb
 /data_generalization/ACOPF Constraints.ipynb

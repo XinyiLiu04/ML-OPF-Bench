@@ -60,10 +60,15 @@ def evaluate_dispatch(pg_pred, pg_true, pd_bus, params):
     }
 
 
-def print_metrics(metrics):
-    """Uniform result printout; timing entries are printed only when present."""
+_CORE_KEYS = ('mae_pg_non_slack', 'mae_pg_slack', 'viol_pg_non_slack', 'viol_pg_slack',
+              'viol_branch', 'viol_balance', 'cost_gap_percent', 'train_time_s', 'inference_ms',
+              'inference_scope')
+
+
+def print_metrics(metrics, title="Test Set Results"):
+    """Uniform result printout; method-specific extras are listed after the standard block."""
     print("\n" + "=" * 70)
-    print("Test Set Results")
+    print(title)
     print("=" * 70)
     print(f"Non-slack generators  MAE {metrics['mae_pg_non_slack']:.4f}%   "
           f"violation {metrics['viol_pg_non_slack']:.6f} p.u. (mean of max)")
@@ -76,4 +81,7 @@ def print_metrics(metrics):
         print(f"Training time         {metrics['train_time_s']:.2f} s")
     if 'inference_ms' in metrics:
         print(f"Inference time        {metrics['inference_ms']:.4f} ms ({metrics['inference_scope']})")
+    for key, value in metrics.items():
+        if key not in _CORE_KEYS:
+            print(f"{key:<22}{value:.4f}" if isinstance(value, float) else f"{key:<22}{value}")
     print("=" * 70 + "\n")

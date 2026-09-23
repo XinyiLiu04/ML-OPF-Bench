@@ -112,6 +112,12 @@ def synchronize(device):
         torch.mps.synchronize()
 
 
+def print_ignored(method, **settings):
+    """Announce shared settings a method receives but does not use, so none is silently swallowed."""
+    for key, value in settings.items():
+        print(f"[{method}] ignoring {key} = {value}")
+
+
 def get_all_params():
     """Return the training hyperparameters consumed by the experiment entry point."""
     return {

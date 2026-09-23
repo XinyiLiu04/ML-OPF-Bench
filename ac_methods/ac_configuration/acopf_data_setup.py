@@ -174,6 +174,8 @@ def load_parameters_from_csv(case_name, params_path):
 
     vm_min = bus_data['vmin_pu'].values.astype(DTYPE)
     vm_max = bus_data['vmax_pu'].values.astype(DTYPE)
+    bus_gs = bus_data['gs_pu'].values.astype(DTYPE)
+    bus_bs = bus_data['bs_pu'].values.astype(DTYPE)
 
     branch_ids = branch_data['branch_id'].values
     f_bus = branch_data['f_bus'].values
@@ -183,7 +185,9 @@ def load_parameters_from_csv(case_name, params_path):
     b_pu = branch_data['b_pu'].values.astype(DTYPE)
     rate_a = branch_data['rate_a_pu'].values.astype(DTYPE)
     tap_ratio = branch_data['tap_ratio'].values.astype(DTYPE)
-    shift_deg = branch_data['shift_deg'].values.astype(DTYPE)
+    shift_rad = branch_data['shift_rad'].values.astype(DTYPE)
+    angmin_rad = branch_data['angmin_rad'].values.astype(DTYPE)
+    angmax_rad = branch_data['angmax_rad'].values.astype(DTYPE)
 
     # Derived branch quantities, for methods that evaluate the power flow equations
     # inside the loss instead of calling a solver
@@ -201,12 +205,11 @@ def load_parameters_from_csv(case_name, params_path):
     #   Qf = -vi^2*Yff_b + vi*vj*( Yft_g*sin(t_ij) - Yft_b*cos(t_ij))
     #   Pt =  vj^2*Ytt_g + vi*vj*( Ytf_g*cos(t_ij) - Ytf_b*sin(t_ij))
     #   Qt = -vj^2*Ytt_b + vi*vj*(-Ytf_g*sin(t_ij) - Ytf_b*cos(t_ij))
-    # With b_pu = 0, tap_ratio = 1 and shift_deg = 0 these reduce to the series-only
+    # With b_pu = 0, tap_ratio = 1 and shift_rad = 0 these reduce to the series-only
     # formulas exactly.
     tau = np.where(tap_ratio == 0, 1.0, tap_ratio).astype(np.float64)
-    shift_rad = np.deg2rad(shift_deg.astype(np.float64))
-    cos_sh = np.cos(shift_rad)
-    sin_sh = np.sin(shift_rad)
+    cos_sh = np.cos(shift_rad.astype(np.float64))
+    sin_sh = np.sin(shift_rad.astype(np.float64))
     g_s = g_br.astype(np.float64)
     b_s = b_br.astype(np.float64)
     # b_pu is the total line charging susceptance, split evenly across both ends
@@ -220,6 +223,20 @@ def load_parameters_from_csv(case_name, params_path):
     Yft_b = ((-g_s * sin_sh - b_s * cos_sh) / tau).astype(DTYPE)
     Ytf_g = ((-g_s * cos_sh - b_s * sin_sh) / tau).astype(DTYPE)
     Ytf_b = ((g_s * sin_sh - b_s * cos_sh) / tau).astype(DTYPE)
+
+    # Zero-injection buses: no load and no generator, so their net injection is
+    # fixed at zero. Methods using Kron reduction predict only the other buses and
+    # solve these from the network equations.
+    has_load = ((np.abs(bus_data['pd_pu'].values) > 1e-6)
+                | (np.abs(bus_data['qd_pu'].values) > 1e-6))
+    is_gen_bus = np.isin(bus_ids, gen_bus_ids)
+    zib_mask = (~has_load) & (~is_gen_bus)
+    zib_indices = np.where(zib_mask)[0]
+
+    print(f"\n(data_setup) Zero-injection buses: {len(zib_indices)} of {n_buses}")
+    if len(zib_indices) > 0:
+        print(f"  Bus IDs: {bus_ids[zib_mask][:10]}"
+              f"{'...' if len(zib_indices) > 10 else ''}")
 
     bus_gen_map_matrix = np.zeros((n_buses, n_gen), dtype=DTYPE)
     if bus_gen_map is not None:
@@ -244,6 +261,9 @@ def load_parameters_from_csv(case_name, params_path):
             'bus_id_to_idx': bus_id_to_idx,
             'slack_gen_mask': slack_gen_mask,
             'non_slack_gen_idx': non_slack_gen_idx,
+            'zib_mask': zib_mask,
+            'zib_indices': zib_indices,
+            'n_zib': len(zib_indices),
         },
         'generator': {
             'pg_min': pg_min.reshape(1, -1),
@@ -257,6 +277,8 @@ def load_parameters_from_csv(case_name, params_path):
         'bus': {
             'vm_min': vm_min,
             'vm_max': vm_max,
+            'gs': bus_gs,
+            'bs': bus_bs,
         },
         'branch': {
             'f_bus': f_bus,
@@ -270,7 +292,9 @@ def load_parameters_from_csv(case_name, params_path):
             'b_br': b_br,
             'rate_a': rate_a,
             'tap_ratio': tap_ratio,
-            'shift_deg': shift_deg,
+            'shift_rad': shift_rad,
+            'angmin_rad': angmin_rad,
+            'angmax_rad': angmax_rad,
             'Yff_g': Yff_g, 'Yff_b': Yff_b,
             'Yft_g': Yft_g, 'Yft_b': Yft_b,
             'Ytf_g': Ytf_g, 'Ytf_b': Ytf_b,

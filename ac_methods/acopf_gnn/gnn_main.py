@@ -340,10 +340,10 @@ def spectral_gnn_acopf_experiment(
 
 
 if __name__ == "__main__":
-    GNN_F1 = 512  # paper: 128
-    GNN_F2 = 256  # paper: 64
+    GNN_F1 = 512  
+    GNN_F2 = 256  
     GNN_K = 4
-    PREDICT_VM = False  # paper predicts pg only
+    PREDICT_VM = False  
 
     print("\n" + "=" * 70)
     print("Loading Configuration")

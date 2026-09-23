@@ -50,8 +50,15 @@ class AlgebraicPowerFlow:
             G[j, i] += br['Ytf_g'][k]
             B[j, i] += br['Ytf_b'][k]
 
+        gs = np.asarray(params['bus']['gs'], dtype=np.float64)
+        bs = np.asarray(params['bus']['bs'], dtype=np.float64)
+        G[np.diag_indices(n)] += gs
+        B[np.diag_indices(n)] += bs
+
         self.G = torch.tensor(G, dtype=torch.float32, device=device)
         self.B = torch.tensor(B, dtype=torch.float32, device=device)
+        self.gs = torch.tensor(gs, dtype=torch.float32, device=device).unsqueeze(0)
+        self.bs = torch.tensor(bs, dtype=torch.float32, device=device).unsqueeze(0)
 
         self.f_idx = torch.tensor(f_idx, dtype=torch.long, device=device)
         self.t_idx = torch.tensor(t_idx, dtype=torch.long, device=device)
@@ -201,10 +208,14 @@ class AlgebraicPowerFlow:
         Pg = (P_inject + Pd_full)[:, self.gen_bus_idx]
         Qg = (Q_inject + Qd_full)[:, self.gen_bus_idx]
 
-        # At a load bus with no generator, the injection is minus the load actually
-        # delivered by this voltage profile
-        Pd_pred = -P_inject[:, self.load_only_bus_idx]
-        Qd_pred = -Q_inject[:, self.load_only_bus_idx]
+        # At a load bus with no generator the injection is minus the delivered load
+        # minus what the bus shunt draws, so the shunt term is removed to recover the
+        # load the voltage profile actually serves
+        vm_sq_lo = v_all[:, self.load_only_bus_idx] ** 2
+        Pd_pred = -P_inject[:, self.load_only_bus_idx] \
+            - self.gs[:, self.load_only_bus_idx] * vm_sq_lo
+        Qd_pred = -Q_inject[:, self.load_only_bus_idx] \
+            + self.bs[:, self.load_only_bus_idx] * vm_sq_lo
 
         return {
             'Pg': Pg,

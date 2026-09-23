@@ -2,7 +2,7 @@
 """Lagrangian dual ACOPF, model M_C^D of Fioretto et al. 2019.
 
 Four heads predict v, theta, non-slack Pg and Qg. The loss is the sum of their MSEs plus
-a weighted sum of eight constraint violation degrees, and the weights are Lagrange
+a weighted sum of nine constraint violation degrees, and the weights are Lagrange
 multipliers updated by dual ascent inside the mini-batch loop (Algorithm 1). Slack Pg is
 not predicted; it is restored by a power flow at evaluation time.
 """
@@ -39,10 +39,7 @@ except ImportError as e:
 
 GLOBAL_CASE_DATA = None
 
-# The paper's model also penalizes voltage angle difference bounds (nu_2b). The
-# constraint CSVs carry no angle limits, so that term would be identically zero and
-# its multiplier would never move; it is left out rather than reported as inactive.
-VIOLATION_NAMES = ('nu_2a', 'nu_3a', 'nu_3b', 'nu_4',
+VIOLATION_NAMES = ('nu_2a', 'nu_2b', 'nu_3a', 'nu_3b', 'nu_4',
                    'nu_5a', 'nu_5b', 'nu_6a', 'nu_6b')
 
 
@@ -134,6 +131,10 @@ class OPFConstraints:
 
         self.f_idx = _t(params['branch']['f_bus_idx'], dtype=torch.long)
         self.t_idx = _t(params['branch']['t_bus_idx'], dtype=torch.long)
+        self.angmin = _t(params['branch']['angmin_rad']).unsqueeze(0)
+        self.angmax = _t(params['branch']['angmax_rad']).unsqueeze(0)
+        self.bus_gs = _t(params['bus']['gs']).unsqueeze(0)
+        self.bus_bs = _t(params['bus']['bs']).unsqueeze(0)
 
         # Full pi-model coefficients, so the flows include line charging and the
         # transformer tap; the shared loader precomputes them from the branch CSV
@@ -192,7 +193,7 @@ class OPFConstraints:
 
     def compute_violations(self, vm_pred_scaled, va_pred_scaled, pg_pred_scaled,
                            qg_pred_scaled, x_scaled, vm_true_scaled, va_true_scaled):
-        """Return the eight violation degrees, each already averaged over the batch."""
+        """Return the nine violation degrees, each already averaged over the batch."""
         batch = vm_pred_scaled.shape[0]
 
         vm_pred = self._inv_transform(vm_pred_scaled, 'vm')
@@ -213,6 +214,10 @@ class OPFConstraints:
         nu_2a = (torch.clamp(self.vm_min.unsqueeze(0) - vm_pred, min=0)
                  + torch.clamp(vm_pred - self.vm_max.unsqueeze(0), min=0)
                  ).mean(dim=1).mean()
+
+        theta_diff = va_pred[:, self.f_idx] - va_pred[:, self.t_idx]
+        nu_2b = (torch.clamp(self.angmin - theta_diff, min=0)
+                 + torch.clamp(theta_diff - self.angmax, min=0)).mean(dim=1).mean()
 
         # Pg bounds, non-slack generators only
         pg_min_ns = self.pg_min[self.non_slack_gen_idx].unsqueeze(0)
@@ -254,14 +259,18 @@ class OPFConstraints:
         pf_sum.scatter_add_(1, t_expand, pt_pred)
         qf_sum.scatter_add_(1, t_expand, qt_pred)
 
+        vm_sq = vm_pred ** 2
+        p_shunt = self.bus_gs * vm_sq
+        q_shunt = -self.bus_bs * vm_sq
+
         mask = self.non_slack_bus_mask.unsqueeze(0)
-        kcl_p = torch.abs(pf_sum - (pg_at_bus - pd_at_bus))
-        kcl_q = torch.abs(qf_sum - (qg_at_bus - qd_at_bus))
+        kcl_p = torch.abs(pf_sum - (pg_at_bus - pd_at_bus - p_shunt))
+        kcl_q = torch.abs(qf_sum - (qg_at_bus - qd_at_bus - q_shunt))
         nu_6a = (kcl_p * mask).sum(dim=1).mean() / self.n_non_slack_buses
         nu_6b = (kcl_q * mask).sum(dim=1).mean() / self.n_non_slack_buses
 
         return {
-            'nu_2a': nu_2a,
+            'nu_2a': nu_2a, 'nu_2b': nu_2b,
             'nu_3a': nu_3a, 'nu_3b': nu_3b,
             'nu_4': nu_4,
             'nu_5a': nu_5a, 'nu_5b': nu_5b,
@@ -748,7 +757,7 @@ def lagrangian_acopf_experiment(
 
 
 if __name__ == "__main__":
-    LAGRANGIAN_LR = 0.01   # paper: rho = 0.01
+    LAGRANGIAN_LR = 0.01   
     LAMBDA_MAX = 100.0
 
     print("\n" + "=" * 80)

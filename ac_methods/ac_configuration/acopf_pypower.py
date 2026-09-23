@@ -6,8 +6,10 @@ import pandas as pd
 from pathlib import Path
 
 from pypower.ppoption import ppoption
+from pypower.runpf import runpf
 
 _PPOPT = None
+_PPOPT_OPF = None
 
 
 def get_ppopt():
@@ -16,6 +18,15 @@ def get_ppopt():
     if _PPOPT is None:
         _PPOPT = ppoption(ppoption(), OUT_ALL=0, VERBOSE=0, ENFORCE_Q_LIMS=0)
     return _PPOPT
+
+
+def get_ppopt_opf():
+    """PyPower options for OPF solves; Q limits and flow limits are enforced here."""
+    global _PPOPT_OPF
+    if _PPOPT_OPF is None:
+        _PPOPT_OPF = ppoption(ppoption(), OUT_ALL=0, VERBOSE=0, ENFORCE_Q_LIMS=1,
+                              OPF_FLOW_LIM=1)
+    return _PPOPT_OPF
 
 
 def load_case_from_csv(case_name, constraints_path):
@@ -38,11 +49,13 @@ def load_case_from_csv(case_name, constraints_path):
     bus[:, 3] = bus_df['qd_pu'].values
     bus[:, 6] = 1
     bus[:, 7] = bus_df['vm_pu'].values
-    bus[:, 8] = bus_df['va_deg'].values
+    bus[:, 8] = np.rad2deg(bus_df['va_rad'].values)
     bus[:, 9] = bus_df['base_kv'].values
     bus[:, 10] = 1
     bus[:, 11] = bus_df['vmax_pu'].values
     bus[:, 12] = bus_df['vmin_pu'].values
+    bus[:, 4] = bus_df['gs_pu'].values
+    bus[:, 5] = bus_df['bs_pu'].values
 
     gen = np.zeros((len(gen_df), 21))
     gen[:, 0] = gen_df['bus_id'].values
@@ -64,7 +77,7 @@ def load_case_from_csv(case_name, constraints_path):
     branch[:, 6] = branch[:, 5]
     branch[:, 7] = branch[:, 5]
     branch[:, 8] = branch_df['tap_ratio'].values
-    branch[:, 9] = branch_df['shift_deg'].values
+    branch[:, 9] = np.rad2deg(branch_df['shift_rad'].values)
     branch[:, 10] = 1
     branch[:, 11] = -360
     branch[:, 12] = 360
@@ -85,6 +98,8 @@ def load_case_from_csv(case_name, constraints_path):
 
     ppc['bus'][:, 2] *= baseMVA
     ppc['bus'][:, 3] *= baseMVA
+    ppc['bus'][:, 4] *= baseMVA
+    ppc['bus'][:, 5] *= baseMVA
     ppc['gen'][:, 3] *= baseMVA
     ppc['gen'][:, 4] *= baseMVA
     ppc['gen'][:, 8] *= baseMVA
@@ -94,3 +109,43 @@ def load_case_from_csv(case_name, constraints_path):
     mask = (ppc['branch'][:, 5] != 0) & (ppc['branch'][:, 5] < 9000)
     ppc['branch'][mask, 5:8] *= baseMVA
     return ppc
+
+
+def build_mpc_for_sample(pd, qd, pg_non_slack, params, case_data):
+    """Copy the base case and apply one sample's loads and non-slack Pg setpoints.
+
+    Slack Pg is deliberately left untouched: the power flow determines it, which is
+    how the slack generator absorbs whatever imbalance the prediction leaves behind.
+    """
+    BASE_MVA = params['general']['BASE_MVA']
+
+    mpc = {
+        'version': case_data['version'],
+        'baseMVA': case_data['baseMVA'],
+        'bus': case_data['bus'].copy(),
+        'gen': case_data['gen'].copy(),
+        'branch': case_data['branch'].copy(),
+        'gencost': case_data['gencost'],
+    }
+
+    bus_id_to_idx = params['general']['bus_id_to_idx']
+    for i, bus_id in enumerate(params['general']['load_bus_ids']):
+        bus_idx = bus_id_to_idx.get(int(bus_id))
+        if bus_idx is not None:
+            mpc['bus'][bus_idx, 2] = pd[i] * BASE_MVA
+            mpc['bus'][bus_idx, 3] = qd[i] * BASE_MVA
+
+    for i, gen_idx in enumerate(params['general']['non_slack_gen_idx']):
+        mpc['gen'][gen_idx, 1] = pg_non_slack[i] * BASE_MVA
+
+    return mpc
+
+
+def solve_pf_setpoints(pd, qd, pg_non_slack, vm_gen, params, case_data):
+    """Run a power flow at the predicted non-slack Pg and generator Vm setpoints."""
+    mpc = build_mpc_for_sample(pd, qd, pg_non_slack, params, case_data)
+
+    for i in range(params['general']['n_gen']):
+        mpc['gen'][i, 5] = vm_gen[i]
+
+    return runpf(mpc, get_ppopt())

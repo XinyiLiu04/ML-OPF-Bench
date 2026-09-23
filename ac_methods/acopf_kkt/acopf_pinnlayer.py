@@ -92,7 +92,9 @@ class PinnLayer(nn.Module):
     def _build_admittance_matrices(self, params, bus_id_to_idx):
         """Build the bus admittance matrix and the branch current operator.
 
-        Both are stored as real blocks so they act on v = [Vr, Vi] directly.
+        Both are stored as real blocks so they act on v = [Vr, Vi] directly. The bus
+        shunt admittance is folded into the diagonal, so a nodal injection computed
+        from Y already accounts for it.
         """
         n = self.n_buses
         br = params['branch']
@@ -102,7 +104,7 @@ class PinnLayer(nn.Module):
         x_pu = br['x_pu'].astype(np.float64)
         b_pu = br['b_pu'].astype(np.float64)
         tap_ratio = br['tap_ratio'].astype(np.float64)
-        shift_deg = br['shift_deg'].astype(np.float64)
+        shift_rad = br['shift_rad'].astype(np.float64)
         rate_a = br['rate_a'].astype(np.float64)
         n_br = len(f_bus)
 
@@ -119,7 +121,7 @@ class PinnLayer(nn.Module):
             y_shunt = complex(0, b_pu[k])
 
             tap = tap_ratio[k] if tap_ratio[k] != 0 else 1.0
-            tap_c = tap * np.exp(1j * shift_deg[k] * np.pi / 180.0)
+            tap_c = tap * np.exp(1j * shift_rad[k])
 
             Y[i, i] += y_series / (tap * np.conj(tap_c)) + y_shunt / 2.0
             Y[j, j] += y_series + y_shunt / 2.0
@@ -129,6 +131,16 @@ class PinnLayer(nn.Module):
             ybr_diag[k] = y_series / tap_c
             IM_complex[k, i] = 1.0
             IM_complex[k, j] = -1.0
+
+        gs = params['bus']['gs'].astype(np.float64)
+        bs = params['bus']['bs'].astype(np.float64)
+        for i in range(n):
+            Y[i, i] += complex(gs[i], bs[i])
+
+        self.register_buffer('bus_gs', torch.tensor(
+            gs, dtype=torch.float32).unsqueeze(0))
+        self.register_buffer('bus_bs', torch.tensor(
+            bs, dtype=torch.float32).unsqueeze(0))
 
         self.register_buffer('Y_real', torch.tensor(Y.real, dtype=torch.float32))
         self.register_buffer('Y_imag', torch.tensor(Y.imag, dtype=torch.float32))
@@ -222,8 +234,14 @@ class PinnLayer(nn.Module):
         P_load.scatter_add_(1, load_idx, pd)
         Q_load.scatter_add_(1, load_idx, qd)
 
-        kkt_error = kkt_error + torch.sum(torch.abs(P_calc - (P_gen - P_load)), dim=1)
-        kkt_error = kkt_error + torch.sum(torch.abs(Q_calc - (Q_gen - Q_load)), dim=1)
+        Vm_sq_bal = Vr ** 2 + Vi ** 2
+        P_shunt = self.bus_gs * Vm_sq_bal
+        Q_shunt = -self.bus_bs * Vm_sq_bal
+
+        kkt_error = kkt_error + torch.sum(
+            torch.abs(P_calc - (P_gen - P_load - P_shunt)), dim=1)
+        kkt_error = kkt_error + torch.sum(
+            torch.abs(Q_calc - (Q_gen - Q_load - Q_shunt)), dim=1)
 
         # Primal violations of the generator limits
         kkt_error = kkt_error + torch.sum(torch.relu(pg_ns - self.pg_max_ns), dim=1)

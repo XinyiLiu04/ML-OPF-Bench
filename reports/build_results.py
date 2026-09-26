@@ -99,7 +99,42 @@ def number(value):
     return f"{value:.3f}"
 
 
-def tables(rows, output):
+def collect_references(root, rows, source_sha, seed):
+    references = []
+    for form in ("ac", "dc"):
+        for case in ("case30", "case118", "case300"):
+            candidates = []
+            for marker in (root / f"reference-{form}-{case}-seed{seed}").glob("*/completed.json"):
+                manifest = read(marker.parent / "manifest.json")
+                summary = read(marker)
+                if manifest["code"]["source_sha256"] == source_sha and summary["n_samples"] == 20:
+                    candidates.append(marker.parent)
+            if not candidates:
+                raise ValueError(f"Missing same-source 20-sample reference: {form}/{case}")
+            attempt = sorted(candidates)[-1]
+            manifest = read(attempt / "manifest.json")
+            summary = read(attempt / "completed.json")
+            comparison = read(attempt / "label_comparison.json")
+            benchmark = next(r for r in rows if r["formulation"] == form and r["case"] == case
+                             and r["method"] == "DNN" and r["mode"] == "cross-system" and r["scenario"] == "base")
+            model_manifest = read(Path(benchmark["attempt"]) / "manifest.json")
+            if manifest["data_signature"] != model_manifest["data_signature"]:
+                raise ValueError(f"Reference/model dataset mismatch: {form}/{case}")
+            if summary["environment"] != model_manifest["environment"]:
+                raise ValueError(f"Reference/model environment mismatch: {form}/{case}")
+            if comparison["indices"] != benchmark["raw_metrics"]["inference_sample_indices"]:
+                raise ValueError(f"Reference/model timing sample mismatch: {form}/{case}")
+            gaps = np.asarray(comparison["signed_relative_gap_percent"], dtype=float)
+            if not np.isfinite(gaps).all():
+                raise ValueError(f"Nonfinite reference cost comparison: {attempt}")
+            references.append({"formulation": form, "case": case, "attempt": str(attempt),
+                               "inference_ms": summary["inference_ms"], "n_samples": summary["n_samples"],
+                               "mean_signed_label_gap_percent": float(gaps.mean()),
+                               "max_abs_label_gap_percent": float(np.abs(gaps).max())})
+    return references
+
+
+def tables(rows, references, output):
     text = [r"\documentclass{article}", r"\usepackage[margin=12mm,landscape]{geometry}",
             r"\usepackage{booktabs,longtable,amsmath}", r"\begin{document}",
             r"\section*{Updated benchmark results: seed 42}",
@@ -132,7 +167,18 @@ def tables(rows, output):
                 text.append(f"{size} & {scenario} & {row['method']} & "
                             + " & ".join(number(row["metrics"][k]) for k in columns) + f" & {count}" + r" \\")
             text += [r"\bottomrule\end{longtable}", r"\normalsize"]
-    text += [r"\end{document}"]
+    text += [r"\section*{Same-hardware IPOPT reference timing}",
+             "Each row uses the same 20 held-out inputs used for DNN latency. "
+             "Julia compilation is warmed up; sample preparation, model construction and solve are timed. "
+             "Cost differences below compare these 20 solutions to their original labels, not to the full ML test set.",
+             r"\begin{longtable}{llrrrr}\toprule",
+             r"Formulation & Case & Samples & Infer (ms) & Mean label gap (\%) & Max absolute label gap (\%) \\",
+             r"\midrule\endhead"]
+    for row in references:
+        text.append(f"{row['formulation'].upper()} & {row['case'][4:]} & {row['n_samples']} & "
+                    + " & ".join(number(row[key]) for key in ("inference_ms", "mean_signed_label_gap_percent",
+                                                              "max_abs_label_gap_percent")) + r" \\")
+    text += [r"\bottomrule\end{longtable}", r"\end{document}"]
     (output / "results_update.tex").write_text("\n".join(text) + "\n")
 
 
@@ -195,13 +241,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs", type=Path, required=True)
     parser.add_argument("--source-sha", required=True)
+    parser.add_argument("--references", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     rows = collect(args.runs.resolve(), args.source_sha, args.seed)
+    references = collect_references(args.references.resolve(), rows, args.source_sha, args.seed)
     args.output.mkdir(parents=True, exist_ok=False)
     (args.output / "results.json").write_text(json.dumps(rows, indent=2, allow_nan=False) + "\n")
-    tables(rows, args.output)
+    (args.output / "reference_timings.json").write_text(json.dumps(references, indent=2, allow_nan=False) + "\n")
+    tables(rows, references, args.output)
     plots(rows, args.output)
 
 

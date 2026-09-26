@@ -15,7 +15,7 @@ from ac_configuration.acopf_data_setup import load_parameters_from_csv
 from acopf_pinnlayer import PinnLayer
 
 
-def audit(case, scenario, count):
+def audit(case, scenario, count, thermal_mapping=None):
     paths = dataset_paths(ROOT, 'ac', case, scenario)
     params = load_parameters_from_csv(paths.case_name, paths.params_path)
     files = {}
@@ -46,6 +46,19 @@ def audit(case, scenario, count):
     for out,name,sign in [('mu_v_u','mu_vm_max',-1),('mu_v_d','mu_vm_min',1),
                           ('mu_sm_fr','mu_sm_fr',-1),('mu_sm_to','mu_sm_to',-1)]:
         o[out]=tensor(sign*dual(name,bids if name.startswith('mu_sm') else busids))
+    if thermal_mapping is not None:
+        mapping=json.loads(Path(thermal_mapping).read_text())['constraint_arcs']
+        limited=sorted(int(i) for i,rate in zip(bids,params['branch']['rate_a']) if np.isfinite(rate) and rate>0)
+        positions={int(b):i for i,b in enumerate(bids)}
+        source_fr=o['mu_sm_fr'].clone(); source_to=o['mu_sm_to'].clone()
+        o['mu_sm_fr']=torch.zeros_like(source_fr); o['mu_sm_to']=torch.zeros_like(source_to)
+        assert len(mapping)==2*len(limited)
+        for j,arc in enumerate(mapping):
+            target,from_bus,to_bus=arc
+            column=positions[target]
+            end='mu_sm_fr' if from_bus==int(params['branch']['f_bus'][column]) else 'mu_sm_to'
+            source=source_fr if j%2==0 else source_to
+            o[end][:,column]=source[:,positions[limited[j//2]]]
     for key in ('mu_ang_u','mu_ang_d'):
         o[key]=tensor(np.zeros((len(vm),len(bids))))
     x=tensor(np.hstack((raw['pd'].to_numpy(),raw['qd'].to_numpy())))

@@ -9,6 +9,8 @@ cost plus weighted constraint violations.
 import numpy as np
 import torch
 import torch.optim as optim
+from ml_opf_bench.runtime import TrainingState, is_managed, record_epoch
+
 import time
 import os
 import sys
@@ -77,10 +79,7 @@ def train_deepopf_ngt(
     # 1. Network parameters and the algebraic power flow engine
     # ------------------------------------------------------------------
     params = load_parameters_from_csv(case_name, params_path)
-    pf_engine = AlgebraicPowerFlow(params, device)
-    denorm = VoltageDenormaliser(params, device, theta_max_deg=theta_max_deg)
 
-    print(f"\n[Reduction] {pf_engine.summary()}")
 
     # ------------------------------------------------------------------
     # 2. Dataset. Only the inputs are used for training; the labels are read
@@ -89,6 +88,10 @@ def train_deepopf_ngt(
     x_data_scaled, y_data_scaled, scalers, raw_data, cost_baseline = \
         load_and_scale_acopf_data(data_path, params, fit_scalers=True,
                                   n_train_use=n_train_use, seed=seed)
+
+    pf_engine = AlgebraicPowerFlow(params, device)
+    denorm = VoltageDenormaliser(params, device, theta_max_deg=theta_max_deg)
+    print(f"\n[Reduction] {pf_engine.summary()}")
 
     n_loads = params['general']['n_loads']
     if cost_baseline:
@@ -150,6 +153,7 @@ def train_deepopf_ngt(
     t0 = time.perf_counter()
 
     for epoch in range(1, n_epochs + 1):
+        record_epoch(epoch)
         model.train()
         epoch_sums = {k: 0.0 for k in LOSS_KEYS}
         epoch_total = 0.0
@@ -206,6 +210,9 @@ def train_deepopf_ngt(
     train_time = time.perf_counter() - t0
     print(f"Training completed in {train_time:.2f} seconds, "
           f"returning the final epoch's model")
+
+    if is_managed():
+        return TrainingState(model, params, train_time, dict(scalers=scalers, denorm=denorm, theta_max_deg=theta_max_deg))
 
     # ------------------------------------------------------------------
     # 6. Inference latency (forward pass only)

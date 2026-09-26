@@ -6,7 +6,7 @@ ssh=['ssh','-i','/Users/xinyiliu/.ssh/lxy','-o','IdentitiesOnly=yes']
 source='ubuntu@159.54.172.24'
 target='ubuntu@146.235.234.66'
 root='/home/ubuntu/lxy-west2'
-command="cd /home/ubuntu && tar --transform='s|^lxy-west/|lxy-west2/|' -czf - lxy-ml-opf-env .local/share/uv/python/cpython-3.12.14-linux-x86_64-gnu lxy-west/data lxy-west/snapshots/seed42-2c1d52c lxy-west/environment/data_manifest.json lxy-west/logs/expected-environment.json"
+command="cd /home/ubuntu && tar --transform='s|^lxy-west/|lxy-west2/|' -czf - lxy-ml-opf-env .local/share/uv/python/cpython-3.12-linux-x86_64-gnu .local/share/uv/python/cpython-3.12.14-linux-x86_64-gnu lxy-west/data lxy-west/snapshots/seed42-2c1d52c lxy-west/environment/data_manifest.json lxy-west/logs/expected-environment.json"
 print('THIRD_HOST_TRANSFER_STARTED',flush=True)
 sender=subprocess.Popen(ssh+[source,command],stdout=subprocess.PIPE)
 receiver=subprocess.Popen(ssh+[target,'tar -xzf - -C /home/ubuntu'],stdin=sender.stdout)

@@ -19,7 +19,7 @@ def main():
     p.add_argument('--root',type=Path,required=True)
     p.add_argument('--plan',type=Path,required=True)
     p.add_argument('--reserve-pid',type=int,action='append',default=[])
-    p.add_argument('--slots',type=int,default=3,choices=range(1,5))
+    p.add_argument('--slots',type=int,default=3,choices=range(1,6))
     a=p.parse_args()
     plan=json.loads(a.plan.read_text())
     tasks=list(plan['tasks']);active={}

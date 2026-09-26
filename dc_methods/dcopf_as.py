@@ -5,6 +5,8 @@ occurs in training cannot be predicted correctly; it counts as misclassified, an
 reports the resulting ceiling on accuracy.
 """
 
+from ml_opf_bench.runtime import TrainingState, is_managed
+
 import time
 
 import numpy as np
@@ -175,6 +177,8 @@ def as_experiment(case_name, params_path, data_path,
         patience=early_stop_patience, min_delta=early_stop_min_delta,
         min_batch=2)  # BatchNorm cannot normalize a batch of one
     train_time = time.perf_counter() - t0
+    if is_managed():
+        return TrainingState(model, params, train_time, dict(x_scaler=x_scaler, vocab=vocab, top_k=top_k))
 
     model.eval()
     k = min(top_k, len(vocab))

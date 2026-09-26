@@ -5,6 +5,8 @@ A classifier maps loads to the active constraint set; Pg is then recovered by an
 the free generators and Vm is read off the active voltage bounds, followed by a power flow.
 """
 
+from ml_opf_bench.runtime import TrainingState, is_managed, record_epoch
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -556,7 +558,8 @@ def active_set_acopf_experiment(
     # 2. Load dataset and fit scalers
     # ------------------------------------------------------------------
     x_data_scaled, y_data_scaled, scalers, raw_data, cost_baseline = \
-        load_and_scale_acopf_data(data_path, params, fit_scalers=True)
+        load_and_scale_acopf_data(data_path, params, fit_scalers=True,
+                                  n_train_use=n_train_use, seed=seed)
 
     # n_loads is only known after loading, because the loader corrects it from the
     # CSV columns: a case may have far fewer load buses than buses
@@ -667,6 +670,7 @@ def active_set_acopf_experiment(
     t0 = time.perf_counter()
 
     for epoch in range(1, n_epochs + 1):
+        record_epoch(epoch)
         model.train()
         epoch_loss = 0.0
         correct = 0
@@ -720,6 +724,8 @@ def active_set_acopf_experiment(
 
     model.load_state_dict({k: v.to(device_obj) for k, v in best_state_dict.items()})
     train_time = time.perf_counter() - t0
+    if is_managed():
+        return TrainingState(model, params, train_time, dict(scalers=scalers, label_to_as=label_to_as, meta=meta, top_k=top_k))
     print(f"Restored best model from epoch {best_epoch} (val_loss={best_val_loss:.6f})")
     print(f"Training completed in {train_time:.2f} seconds")
 

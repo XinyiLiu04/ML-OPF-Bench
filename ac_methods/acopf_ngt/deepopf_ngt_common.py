@@ -127,7 +127,7 @@ class LossTerms:
 
         # Branches with no usable rating are excluded from the thermal term
         rate_a = np.asarray(params['branch']['rate_a'], dtype=np.float64)
-        usable = np.isfinite(rate_a) & (rate_a > 1e-5) & (rate_a < 9000.0)
+        usable = np.isfinite(rate_a) & (rate_a > 0)
         self.br_mask = torch.tensor(usable, device=device)
         self.rate_a = _t(rate_a[usable]).unsqueeze(0)
         self.any_branch_limit = bool(usable.any())

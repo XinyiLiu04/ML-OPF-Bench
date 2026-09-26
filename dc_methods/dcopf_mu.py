@@ -1,5 +1,7 @@
 """Lagrangian dual training (Fioretto et al., AAAI-20): MSE plus multiplier-weighted violation degrees."""
 
+from ml_opf_bench.runtime import TrainingState, is_managed
+
 import time
 
 import numpy as np
@@ -76,6 +78,8 @@ def mu_experiment(case_name, params_path, data_path,
         after_step=update_multipliers,
         epoch_log=lambda: f"lambda_pg {multipliers['pg']:.4f}  lambda_branch {multipliers['branch']:.4f}")
     train_time = time.perf_counter() - t0
+    if is_managed():
+        return TrainingState(model, params, train_time, dict(x_scaler=x_scaler, y_scaler=y_scaler))
     print(f"Final multipliers: pg {multipliers['pg']:.6f}, branch {multipliers['branch']:.6f}")
 
     model.eval()

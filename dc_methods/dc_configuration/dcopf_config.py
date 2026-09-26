@@ -2,6 +2,7 @@
 """DCOPF configuration. Set ROOT_DIR, CASE and VARIANCE."""
 
 import os
+from pathlib import Path
 
 # =====================================================================
 # Dataset location
@@ -13,7 +14,7 @@ import os
 # `or` rather than a get default, so an environment variable set to an empty
 # string does not silently turn every path into a relative one
 ROOT_DIR = (os.environ.get("ML_OPF_BENCH_DATA")
-            or "/Users/xinyiliu/Projects/ml-opf-bench/ML-OPF-Bench")
+            or str(Path(__file__).resolve().parents[2]))
 
 DATA_SUBDIR = os.path.join("dc_dataset", "dcopf_datasets")
 CONSTRAINTS_SUBDIR = os.path.join("dc_dataset", "dcopf_constraints")

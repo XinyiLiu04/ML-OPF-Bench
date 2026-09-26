@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """ACOPF data loading and preprocessing."""
 
+from ml_opf_bench.runtime import training_indices
+
 import os
 import re
 import pandas as pd
@@ -23,39 +25,12 @@ def reconstruct_full_pg(pg_non_slack, params):
     return pg_full
 
 
-def prepare_data_splits(
-        x_data_scaled,
-        y_data_scaled,
-        n_train_use=None,
-        seed=42,
-        val_ratio=1 / 12,
-        test_ratio=1 / 12
-):
-    """Draw a random train/val/test split from the first n_train_use shuffled samples."""
-    rng = np.random.default_rng(seed)
-    n_total = len(x_data_scaled)
-
-    n_use = n_total if (n_train_use is None or n_train_use > n_total) else n_train_use
-    pool_indices = rng.permutation(n_total)[:n_use]
-
-    n_val = max(1, int(n_use * val_ratio))
-    n_test = max(1, int(n_use * test_ratio))
-    n_train = n_use - n_val - n_test
-
-    if n_train <= 0:
-        raise ValueError(f"Sample size {n_use} too small for splitting")
-
-    train_idx = pool_indices[:n_train]
-    val_idx = pool_indices[n_train:n_train + n_val]
-    test_idx = pool_indices[n_train + n_val:]
-
-    print(f"\n[Data Split]")
-    print(f"  Total samples: {n_total}, Used samples: {n_use}")
-    print(f"  Train: {len(train_idx)} ({len(train_idx) / n_use * 100:.1f}%)")
-    print(f"  Val: {len(val_idx)} ({len(val_idx) / n_use * 100:.1f}%)")
-    print(f"  Test: {len(test_idx)} ({len(test_idx) / n_use * 100:.1f}%)")
-
-    return train_idx, val_idx, test_idx
+def prepare_data_splits(x_data_scaled, y_data_scaled, n_train_use=None, seed=42,
+                        val_ratio=1 / 12, test_ratio=1 / 12):
+    """Use the shared experiment split before fitting any preprocessing."""
+    if val_ratio != 1 / 12 or test_ratio != 1 / 12:
+        raise ValueError("Custom ratios must be expressed as an experiment protocol")
+    return training_indices(len(x_data_scaled), n_train_use, seed)
 
 
 def extract_id(col):
@@ -307,7 +282,8 @@ def load_parameters_from_csv(case_name, params_path):
     return simulation_parameters
 
 
-def load_and_scale_acopf_data(data_path, params, fit_scalers=True, scalers=None):
+def load_and_scale_acopf_data(data_path, params, fit_scalers=True, scalers=None,
+                              n_train_use=None, seed=42):
     """Load the dataset and scale it; Y contains only non-slack Pg and generator-bus Vm."""
     case_name = parse_case_name(data_path)
     data_dir = os.path.dirname(data_path)
@@ -332,10 +308,12 @@ def load_and_scale_acopf_data(data_path, params, fit_scalers=True, scalers=None)
     load_bus_ids = [extract_id(col) for col in sorted_pd_cols]
     n_loads = len(load_bus_ids)
 
-    if params['general']['n_loads'] != n_loads:
-        print(f"(data_setup) Updating n_loads: {params['general']['n_loads']} -> {n_loads}")
-        params['general']['n_loads'] = n_loads
-        params['general']['load_bus_ids'] = np.array(load_bus_ids)
+    if load_bus_ids != [extract_id(col) for col in sorted_qd_cols]:
+        raise ValueError('Pd and Qd feature bus IDs differ')
+    if len({len(frame) for frame in (pd_df, qd_df, pg_df, qg_df, vm_df, va_df)}) != 1:
+        raise ValueError('Dataset tables have different row counts')
+    params['general']['n_loads'] = n_loads
+    params['general']['load_bus_ids'] = np.array(load_bus_ids)
 
     x_pd_raw = pd_df[sorted_pd_cols].values.astype('float32')
     x_qd_raw = qd_df[sorted_qd_cols].values.astype('float32')
@@ -365,6 +343,7 @@ def load_and_scale_acopf_data(data_path, params, fit_scalers=True, scalers=None)
     print(f"  Generator Vm range: [{y_vm_raw_gen.min():.4f}, {y_vm_raw_gen.max():.4f}] p.u.")
 
     if fit_scalers:
+        fit_idx = training_indices(len(x_data_raw), n_train_use, seed)[0]
         scalers = {
             'x': MinMaxScaler(),
             'pg': MinMaxScaler(),
@@ -372,11 +351,11 @@ def load_and_scale_acopf_data(data_path, params, fit_scalers=True, scalers=None)
             'vm': MinMaxScaler(),
             'va': MinMaxScaler(),
         }
-        x_data_scaled = scalers['x'].fit_transform(x_data_raw)
-        y_pg_scaled = scalers['pg'].fit_transform(y_pg_raw_non_slack)
-        y_qg_scaled = scalers['qg'].fit_transform(y_qg_raw)
-        y_vm_scaled = scalers['vm'].fit_transform(y_vm_raw_gen)
-        y_va_scaled = scalers['va'].fit_transform(y_va_raw)
+        x_data_scaled = scalers['x'].fit(x_data_raw[fit_idx]).transform(x_data_raw)
+        y_pg_scaled = scalers['pg'].fit(y_pg_raw_non_slack[fit_idx]).transform(y_pg_raw_non_slack)
+        y_qg_scaled = scalers['qg'].fit(y_qg_raw[fit_idx]).transform(y_qg_raw)
+        y_vm_scaled = scalers['vm'].fit(y_vm_raw_gen[fit_idx]).transform(y_vm_raw_gen)
+        y_va_scaled = scalers['va'].fit(y_va_raw[fit_idx]).transform(y_va_raw)
         print(f"(data_setup) Scalers fitted")
     else:
         if scalers is None:

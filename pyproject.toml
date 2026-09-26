@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ml-opf-bench"
+version = "0.2.0"
+description = "Reproducible AC and DC optimal power flow benchmarks"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26,<3", "pandas>=2.2,<4", "scipy>=1.12,<2",
+  "scikit-learn>=1.4,<2", "torch>=2.5,<3", "PYPOWER>=5.1.19,<6",
+  "torch-geometric>=2.6,<3", "gymnasium>=1,<2", "stable-baselines3>=2.4,<3",
+  "huggingface_hub>=0.30,<2",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+plots = ["matplotlib>=3.8,<4"]
+
+[project.scripts]
+ml-opf-bench = "ml_opf_bench.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src", "."]
+include = ["ml_opf_bench*", "ac_methods*", "dc_methods*"]
+namespaces = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

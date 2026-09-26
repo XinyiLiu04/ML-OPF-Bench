@@ -8,6 +8,8 @@ flow. Episodes terminate immediately, so this is contextual bandit rather than
 sequential control; the RL machinery buys exploration, not temporal credit assignment.
 """
 
+from ml_opf_bench.runtime import TrainingState, is_managed
+
 import numpy as np
 import time
 import sys
@@ -83,7 +85,7 @@ def compute_penalty_from_pf(r1_pf, base_mva):
                     + np.maximum(0, vm_pu - bus[:, 11]))
 
     rate_a = branch[:, 5]
-    limited = (rate_a > 0) & (rate_a < 9000)
+    limited = np.isfinite(rate_a) & (rate_a > 0)
     br_pen = 0.0
     if np.any(limited):
         Ff = np.abs(branch[limited, 13] + 1j * branch[limited, 14])
@@ -145,6 +147,8 @@ class AcopfEnv(gym.Env):
         super().__init__()
 
         self.x_scaled = x_scaled[indices]
+        if not np.isfinite(self.x_scaled).all():
+            raise ValueError("RL observations must be finite")
         self.x_raw = x_raw[indices]
         self.n_samples = len(indices)
 
@@ -164,7 +168,7 @@ class AcopfEnv(gym.Env):
         self.cost_c0 = params['generator']['cost_c0']
 
         self.observation_space = spaces.Box(
-            low=0.0, high=1.0, shape=(2 * self.n_loads,), dtype=np.float32)
+            low=-np.inf, high=np.inf, shape=(2 * self.n_loads,), dtype=np.float32)
         self.action_space = spaces.Box(
             low=0.0, high=1.0,
             shape=(self.n_gen_non_slack + self.n_gen,), dtype=np.float32)
@@ -352,6 +356,9 @@ def acopf_rl_experiment(
         penalty_weight=0.5,
         action_bounds='dataset',
         n_scaling_probes=500,
+        rollout_steps=None,
+        early_stop_patience=20,
+        early_stop_min_delta=1e-6,
         **kwargs  # Absorbs settings that do not apply, such as early stopping
 ):
     """Train PPO on a random split and evaluate on the test indices."""
@@ -373,7 +380,8 @@ def acopf_rl_experiment(
     # 2. Dataset. The labels are used only by the evaluation, never by the agent.
     # ------------------------------------------------------------------
     x_scaled, y_scaled, scalers, raw_data, cost_baseline = \
-        load_and_scale_acopf_data(data_path, params, fit_scalers=True)
+        load_and_scale_acopf_data(data_path, params, fit_scalers=True,
+                                  n_train_use=n_train_use, seed=seed)
 
     n_gen = params['general']['n_gen']
     n_gen_non_slack = params['general']['n_gen_non_slack']
@@ -459,7 +467,7 @@ def acopf_rl_experiment(
         env=train_env,
         learning_rate=learning_rate,
         clip_range=0.1,
-        n_steps=min(max(len(train_idx), 2048), 4096),
+        n_steps=rollout_steps or min(max(len(train_idx), 2048), 4096),
         batch_size=batch_size,
         n_epochs=3,
         policy_kwargs=dict(net_arch=hidden_sizes),
@@ -475,8 +483,15 @@ def acopf_rl_experiment(
     print(f"Training")
     print(f"{'=' * 70}")
     t0 = time.perf_counter()
-    model.learn(total_timesteps=total_timesteps, progress_bar=False)
+    from ml_opf_bench.rl_training import ValidationRewardStopping
+    val_env = AcopfEnv(x_scaled, raw_data['x'], val_idx, params, case_data,
+                       bounds, reward_fn, seed=seed)
+    callback = ValidationRewardStopping(val_env, min(len(train_idx), total_timesteps),
+                                         early_stop_patience, early_stop_min_delta)
+    model.learn(total_timesteps=total_timesteps, callback=callback, progress_bar=False)
     train_time = time.perf_counter() - t0
+    if is_managed():
+        return TrainingState(model.policy, params, train_time, dict(scalers=scalers, bounds=bounds, total_timesteps=model.num_timesteps))
     print(f"\nTraining completed in {train_time:.2f} seconds")
 
     # ------------------------------------------------------------------

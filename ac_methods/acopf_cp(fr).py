@@ -2,6 +2,8 @@
 """DeepOPF (PINN) for ACOPF: MSE loss plus a zero-order estimated constraint penalty,
 with optional warm-start OPF recovery for infeasible predictions."""
 
+from ml_opf_bench.runtime import TrainingState, is_managed, record_epoch
+
 import sys
 import time
 import torch
@@ -121,10 +123,8 @@ def check_acopf_feasibility(pf_result, params, tol=1e-4):
         np.maximum(0, vm - res['bus'][:, VMAX] - tol).max()
     )
 
-    # The 9900 sentinel marks unrated branches, matching the threshold the
-    # evaluation module uses so both agree on which branches are constrained
     rate_a = res['branch'][:, RATE_A]
-    active_br = np.where((rate_a > 0) & (rate_a < 9000))[0]
+    active_br = np.where(np.isfinite(rate_a) & (rate_a > 0))[0]
     if len(active_br):
         sf = np.abs(res['branch'][active_br, PF] + 1j * res['branch'][active_br, QF])
         st = np.abs(res['branch'][active_br, PT] + 1j * res['branch'][active_br, QT])
@@ -624,7 +624,8 @@ def train_pinn_acopf(
         # 2. Load dataset and fit scalers
         # --------------------------------------------------------------
         x_data_scaled, y_data_scaled, scalers, raw_data, cost_baseline = \
-            load_and_scale_acopf_data(data_path, params, fit_scalers=True)
+            load_and_scale_acopf_data(data_path, params, fit_scalers=True,
+                                  n_train_use=n_train_use, seed=seed)
         GLOBAL_SCALERS = scalers
 
         n_gen = params['general']['n_gen']
@@ -704,6 +705,7 @@ def train_pinn_acopf(
         t0 = time.perf_counter()
 
         for epoch in range(1, n_epochs + 1):
+            record_epoch(epoch)
             model.train()
             epoch_total = 0.0
 
@@ -747,6 +749,8 @@ def train_pinn_acopf(
 
         train_time = time.perf_counter() - t0
         model.load_state_dict({k: v.to(device_obj) for k, v in best_state_dict.items()})
+        if is_managed():
+            return TrainingState(model, params, train_time, dict(scalers=scalers))
         print(f"Restored best model from epoch {best_epoch} (val_loss={best_val_loss:.6f})")
         print(f"Training completed in {train_time:.2f} seconds")
 

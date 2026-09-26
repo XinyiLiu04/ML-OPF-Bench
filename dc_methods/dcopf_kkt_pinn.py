@@ -10,6 +10,8 @@ and vanishes on exact ground truth. The complementarity and dual-feasibility ter
 scaled multipliers, as in the reference implementation, which keeps them O(1).
 """
 
+from ml_opf_bench.runtime import TrainingState, is_managed, record_epoch
+
 import time
 from itertools import zip_longest
 
@@ -164,6 +166,7 @@ def kkt_pinn_experiment(case_name, params_path, data_path,
     best_val, best_epoch, best_state, stale = float('inf'), 0, None, 0
     t0 = time.perf_counter()
     for epoch in range(1, n_epochs + 1):
+        record_epoch(epoch)
         model.train()
         sup_batches = torch.randperm(len(sup_idx), device=device).split(batch_size)
         col_batches = torch.randperm(len(col_idx), device=device).split(batch_size) if len(col_idx) else ()
@@ -199,6 +202,8 @@ def kkt_pinn_experiment(case_name, params_path, data_path,
         raise RuntimeError("Validation loss never improved (non-finite loss?); no checkpoint to restore")
     model.load_state_dict(best_state)
     train_time = time.perf_counter() - t0
+    if is_managed():
+        return TrainingState(model, params, train_time, dict(x_scaler=x_scaler, y_scaler=y_scaler))
     print(f"Restored best checkpoint: epoch {best_epoch}, val {best_val:.3e}")
 
     model.eval()

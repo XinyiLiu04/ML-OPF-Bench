@@ -7,6 +7,8 @@ multipliers updated by dual ascent inside the mini-batch loop (Algorithm 1). Sla
 not predicted; it is restored by a power flow at evaluation time.
 """
 
+from ml_opf_bench.runtime import TrainingState, is_managed, record_epoch
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -51,7 +53,7 @@ VIOLATION_NAMES = ('nu_2a', 'nu_2b', 'nu_3a', 'nu_3b', 'nu_4',
 def unlimited_branch_mask(rate_a):
     """Branches with no usable thermal rating, using the project-wide sentinel rules."""
     rate_a = np.asarray(rate_a, dtype=np.float64)
-    return ~np.isfinite(rate_a) | (rate_a <= 0) | (rate_a >= 9000)
+    return ~np.isfinite(rate_a) | (rate_a <= 0)
 
 
 def _build_subnetwork(dims, use_activation_on_last=False):
@@ -341,6 +343,7 @@ def train_lagrangian_dual(model, train_loader, val_loader, scalers, params,
     print(f"{'-' * 110}")
 
     for epoch in range(1, n_epochs + 1):
+        record_epoch(epoch)
         model.train()
         epoch_loss = epoch_mse = epoch_lc = 0.0
         n_batches = 0
@@ -652,14 +655,15 @@ def lagrangian_acopf_experiment(
     #    scaler is new; the shared va, pg and qg scalers already cover the rest.
     # ------------------------------------------------------------------
     x_scaled, _, scalers, raw_data, cost_baseline = \
-        load_and_scale_acopf_data(data_path, params, fit_scalers=True)
+        load_and_scale_acopf_data(data_path, params, fit_scalers=True,
+                                  n_train_use=n_train_use, seed=seed)
 
     n_loads = params['general']['n_loads']
     n_buses = params['general']['n_buses']
     n_gen = params['general']['n_gen']
     n_gen_non_slack = params['general']['n_gen_non_slack']
 
-    scalers['vm_all'] = MinMaxScaler().fit(raw_data['vm'])
+    scalers['vm_all'] = MinMaxScaler().fit(raw_data['vm'][prepare_data_splits(x_scaled, None, n_train_use, seed)[0]])
     y_scaled = np.hstack([
         scalers['vm_all'].transform(raw_data['vm']),
         scalers['va'].transform(raw_data['va']),
@@ -717,6 +721,8 @@ def lagrangian_acopf_experiment(
         early_stop_min_delta=early_stop_min_delta,
         device=device)
     train_time = time.perf_counter() - t_start
+    if is_managed():
+        return TrainingState(model, params, train_time, dict(scalers=scalers))
     print(f"Training completed in {train_time:.2f} seconds")
 
     # ------------------------------------------------------------------

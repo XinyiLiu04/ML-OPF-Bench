@@ -25,7 +25,7 @@ def get_ppopt_opf():
     global _PPOPT_OPF
     if _PPOPT_OPF is None:
         _PPOPT_OPF = ppoption(ppoption(), OUT_ALL=0, VERBOSE=0, ENFORCE_Q_LIMS=1,
-                              OPF_FLOW_LIM=1)
+                              OPF_FLOW_LIM=0)
     return _PPOPT_OPF
 
 
@@ -79,18 +79,18 @@ def load_case_from_csv(case_name, constraints_path):
     branch[:, 8] = branch_df['tap_ratio'].values
     branch[:, 9] = np.rad2deg(branch_df['shift_rad'].values)
     branch[:, 10] = 1
-    branch[:, 11] = -360
-    branch[:, 12] = 360
+    branch[:, 11] = np.rad2deg(branch_df['angmin_rad'].values)
+    branch[:, 12] = np.rad2deg(branch_df['angmax_rad'].values)
 
-    # Unrated branches get a large finite rating so PyPower treats them as unconstrained
+    # PyPower uses a zero rating for unconstrained branches.
     rate_a_values = branch_df['rate_a_pu'].values
-    branch[:, 5:8][np.isnan(rate_a_values) | np.isinf(rate_a_values), :] = 9900.0
+    branch[:, 5:8][~np.isfinite(rate_a_values), :] = 0.0
 
     gencost = np.zeros((len(gen_df), 7))
     gencost[:, 0] = 2
     gencost[:, 3] = 3
-    gencost[:, 4] = gen_df['cost_c2'].values
-    gencost[:, 5] = gen_df['cost_c1'].values
+    gencost[:, 4] = gen_df['cost_c2'].values / baseMVA ** 2
+    gencost[:, 5] = gen_df['cost_c1'].values / baseMVA
     gencost[:, 6] = gen_df['cost_c0'].values
 
     ppc = {'version': '2', 'baseMVA': baseMVA, 'bus': bus, 'gen': gen,
@@ -105,9 +105,7 @@ def load_case_from_csv(case_name, constraints_path):
     ppc['gen'][:, 8] *= baseMVA
     ppc['gen'][:, 9] *= baseMVA
 
-    # The sentinel is left unscaled so it stays recognizable as "no limit"
-    mask = (ppc['branch'][:, 5] != 0) & (ppc['branch'][:, 5] < 9000)
-    ppc['branch'][mask, 5:8] *= baseMVA
+    ppc['branch'][:, 5:8] *= baseMVA
     return ppc
 
 

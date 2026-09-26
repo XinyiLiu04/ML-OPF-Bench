@@ -103,7 +103,7 @@ def collate_graph_batch(x_scaled_batch, edge_index, edge_weight, n_buses, device
 
     # Graph b occupies rows [b*N, (b+1)*N), so its edges are shifted by b*N
     offsets = (torch.arange(B, device=device) * N).view(B, 1, 1)
-    batch_ei = (edge_index.to(device).unsqueeze(0) + offsets).reshape(2, B * E)
+    batch_ei = (edge_index.to(device).unsqueeze(0) + offsets).permute(1, 0, 2).reshape(2, B * E)
     batch_ew = edge_weight.to(device).repeat(B)
 
     return node_feats, batch_ei, batch_ew, B

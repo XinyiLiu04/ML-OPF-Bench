@@ -6,6 +6,8 @@ Metrics are reported twice: directly on the network output, and after a power fl
 been solved at the predicted setpoints.
 """
 
+from ml_opf_bench.runtime import TrainingState, is_managed, record_epoch
+
 import numpy as np
 import torch
 import time
@@ -180,7 +182,7 @@ def compute_direct_metrics(pg_ns_np, vm_all_np, va_all_np, qg_all_np,
     # Unrated branches use the same threshold as the evaluation module, and NaN
     # ratings must be caught explicitly or every violation becomes NaN
     rate_a = params['branch']['rate_a'].astype(np.float64).copy()
-    unlimited = ~np.isfinite(rate_a) | (rate_a <= 0) | (rate_a >= 9000)
+    unlimited = ~np.isfinite(rate_a) | (rate_a <= 0)
     rate_a[unlimited] = np.inf
 
     vi = vm_all_np[:, f_idx]
@@ -374,7 +376,8 @@ def acopf_pinn_experiment(
     #    equation and is only meaningful in physical units.
     # ------------------------------------------------------------------
     x_data_scaled, y_data_scaled, scalers, raw_data, cost_baseline = \
-        load_and_scale_acopf_data(data_path, params, fit_scalers=True)
+        load_and_scale_acopf_data(data_path, params, fit_scalers=True,
+                                  n_train_use=n_train_use, seed=seed)
 
     n_gen = params['general']['n_gen']
     n_gen_non_slack = params['general']['n_gen_non_slack']
@@ -502,6 +505,7 @@ def acopf_pinn_experiment(
     t0 = time.perf_counter()
 
     for epoch in range(1, n_epochs + 1):
+        record_epoch(epoch)
         model.train()
         epoch_loss = epoch_kkt = epoch_mae_g = epoch_mae_v = 0.0
         indices = torch.randperm(n_train, device=device_obj)
@@ -552,6 +556,8 @@ def acopf_pinn_experiment(
 
     model.load_state_dict({k: v.to(device_obj) for k, v in best_state_dict.items()})
     train_time = time.perf_counter() - t0
+    if is_managed():
+        return TrainingState(model, params, train_time, dict(scalers=scalers))
     print(f"Restored best model from epoch {best_epoch} (val_loss={best_val_loss:.6f})")
     print(f"Training completed in {train_time:.2f} seconds")
 

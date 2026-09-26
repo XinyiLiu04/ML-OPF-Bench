@@ -1,5 +1,7 @@
 """DeepOPF-NGT (Huang, Chen, Low, IEEE TPWRS 2024), unsupervised: minimize cost plus adaptively weighted violations."""
 
+from ml_opf_bench.runtime import TrainingState, is_managed, record_epoch
+
 import time
 
 import numpy as np
@@ -156,11 +158,14 @@ def ngt_experiment(case_name, params_path, data_path,
 
     t0 = time.perf_counter()
     for epoch in range(1, n_epochs + 1):
+        record_epoch(epoch)
         raw = unsupervised_epoch(model, optimizer, weights, X_train, Pd_train, batch_size, net)
         weights.end_epoch(epoch, raw)
         if epoch == 1 or epoch % 10 == 0 or epoch == n_epochs:
             log_epoch(epoch, n_epochs, raw, weights, validation_score(model, weights, X_val, Pd_val, net))
     train_time = time.perf_counter() - t0
+    if is_managed():
+        return TrainingState(model, params, train_time, dict(x_scaler=x_scaler))
 
     metrics = evaluate_sigmoid_model(model, X_test, pd_bus[test_idx], pg[test_idx], params, net)
     metrics['train_time_s'] = train_time

@@ -87,7 +87,8 @@ def train_deepopf_ngt(
     #    at evaluation time only, which is what makes this unsupervised.
     # ------------------------------------------------------------------
     x_data_scaled, y_data_scaled, scalers, raw_data, cost_baseline = \
-        load_and_scale_acopf_data(data_path, params, fit_scalers=True)
+        load_and_scale_acopf_data(data_path, params, fit_scalers=True,
+                                  n_train_use=n_train_use, seed=seed)
 
     n_loads = params['general']['n_loads']
     if cost_baseline:

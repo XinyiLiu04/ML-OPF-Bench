@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """DNN baseline for ACOPF: predicts non-slack Pg and generator-bus Vm, then runs a power flow."""
 
+from ml_opf_bench.runtime import TrainingState, is_managed, record_epoch
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -164,7 +166,8 @@ def traditional_nn_acopf_experiment(
     # 2. Load dataset and fit scalers
     # ------------------------------------------------------------------
     x_data_scaled, y_data_scaled, scalers, raw_data, cost_baseline = \
-        load_and_scale_acopf_data(data_path, params, fit_scalers=True)
+        load_and_scale_acopf_data(data_path, params, fit_scalers=True,
+                                  n_train_use=n_train_use, seed=seed)
 
     n_gen = params['general']['n_gen']
     n_gen_non_slack = params['general']['n_gen_non_slack']
@@ -233,6 +236,7 @@ def traditional_nn_acopf_experiment(
     patience_counter = 0
 
     for epoch in range(1, n_epochs + 1):
+        record_epoch(epoch)
         model.train()
         epoch_loss = 0.0
         indices = torch.randperm(n_train)
@@ -268,6 +272,8 @@ def traditional_nn_acopf_experiment(
 
     model.load_state_dict({k: v.to(device) for k, v in best_state_dict.items()})
     train_time = time.perf_counter() - t0
+    if is_managed():
+        return TrainingState(model, params, train_time, dict(scalers=scalers))
     print(f"Restored best model from epoch {best_epoch} (val_loss={best_val_loss:.6f})")
     print(f"Training completed in {train_time:.2f} seconds")
 

@@ -2,6 +2,8 @@
 """Unsupervised ACOPF, DeepOPF-NGT with reshaped losses and EMA-scheduled weights.
 """
 
+from ml_opf_bench.runtime import TrainingState, is_managed, record_epoch
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -84,21 +86,23 @@ def train_deepopf_ngt_smoothed(
     # ------------------------------------------------------------------
     params = load_parameters_from_csv(case_name, params_path)
     case_data = load_case_from_csv(case_name, params_path)
-    pf_engine = AlgebraicPowerFlow(params, device)
-    denorm = VoltageDenormaliser(params, device, theta_max_deg=theta_max_deg)
-
-    print(f"\n[Reduction] {pf_engine.summary()}")
 
     # ------------------------------------------------------------------
     # 2. Dataset. Labels are read only at evaluation time.
     # ------------------------------------------------------------------
     x_data_scaled, y_data_scaled, scalers, raw_data, cost_baseline = \
-        load_and_scale_acopf_data(data_path, params, fit_scalers=True)
+        load_and_scale_acopf_data(data_path, params, fit_scalers=True,
+                                  n_train_use=n_train_use, seed=seed)
+
+    pf_engine = AlgebraicPowerFlow(params, device)
+    denorm = VoltageDenormaliser(params, device, theta_max_deg=theta_max_deg)
+
+    print(f"\n[Reduction] {pf_engine.summary()}")
 
     n_loads = params['general']['n_loads']
     if cost_baseline:
         print(f"  Reference cost: {cost_baseline:.2f} $/h "
-              f"(also the normalization scale for L_obj)")
+              f"(diagnostic only)")
 
     # ------------------------------------------------------------------
     # 3. Split
@@ -154,6 +158,7 @@ def train_deepopf_ngt_smoothed(
     t0 = time.perf_counter()
 
     for epoch in range(1, n_epochs + 1):
+        record_epoch(epoch)
         model.train()
         epoch_sums = {k: 0.0 for k in LOSS_KEYS}
         epoch_total = 0.0
@@ -184,7 +189,7 @@ def train_deepopf_ngt_smoothed(
         means = {k: epoch_sums[k] / n_train for k in LOSS_KEYS}
 
         if epoch == 1:
-            scheduler.set_references(means, cost_baseline)
+            scheduler.set_references(means)
             print(f"  [Normalization] references fixed after epoch 1: "
                   + ", ".join(f"{k}={scheduler.refs[k]:.4g}" for k in LOSS_KEYS))
         else:
@@ -209,6 +214,8 @@ def train_deepopf_ngt_smoothed(
             print(f"  Weights: {scheduler.describe()}{scheduler.describe_ema()}")
 
     train_time = time.perf_counter() - t0
+    if is_managed():
+        return TrainingState(model, params, train_time, dict(scalers=scalers, denorm=denorm, theta_max_deg=theta_max_deg))
     print(f"\nTraining completed in {train_time:.2f} seconds, "
           f"returning the final epoch's model")
 

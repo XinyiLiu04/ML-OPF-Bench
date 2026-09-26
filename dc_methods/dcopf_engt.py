@@ -5,6 +5,8 @@ unsupervised NGT pass over the whole training split. The constraint weights adap
 unsupervised pass; k_v stays fixed.
 """
 
+from ml_opf_bench.runtime import TrainingState, is_managed, record_epoch
+
 import time
 
 import numpy as np
@@ -56,6 +58,7 @@ def engt_experiment(case_name, params_path, data_path,
 
     t0 = time.perf_counter()
     for epoch in range(1, n_epochs + 1):
+        record_epoch(epoch)
         model.train()
         sup_sum = 0.0
         perm = torch.randperm(n_labeled, device=device)
@@ -75,6 +78,8 @@ def engt_experiment(case_name, params_path, data_path,
             log_epoch(epoch, n_epochs, raw, weights, validation_score(model, weights, X_val, Pd_val, net))
             print(f"  L_v (labeled) {sup_sum / n_labeled:.3e}")
     train_time = time.perf_counter() - t0
+    if is_managed():
+        return TrainingState(model, params, train_time, dict(x_scaler=x_scaler))
 
     metrics = evaluate_sigmoid_model(model, X_test, pd_bus[test_idx], pg[test_idx], params, net)
     metrics['train_time_s'] = train_time

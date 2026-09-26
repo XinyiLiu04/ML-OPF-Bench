@@ -1,5 +1,7 @@
 """Supervised MLP baseline: predict non-slack dispatch from loads, close the balance on the slack."""
 
+from ml_opf_bench.runtime import TrainingState, is_managed
+
 import time
 
 import numpy as np
@@ -48,6 +50,8 @@ def dnn_experiment(case_name, params_path, data_path,
         n_epochs=n_epochs, batch_size=batch_size,
         patience=early_stop_patience, min_delta=early_stop_min_delta)
     train_time = time.perf_counter() - t0
+    if is_managed():
+        return TrainingState(model, params, train_time, dict(x_scaler=x_scaler, y_scaler=y_scaler))
 
     model.eval()
     with torch.no_grad():

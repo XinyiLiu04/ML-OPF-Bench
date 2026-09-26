@@ -31,7 +31,7 @@ def calculate_single_sample_violations(r1_pf, is_converged, base_mva):
 
     # Branch violation is relative: 1.0 means 100% over the rating
     rate_a_mva = branch[:, 5]
-    limit_idx = (rate_a_mva > 0) & (rate_a_mva < 9000)
+    limit_idx = np.isfinite(rate_a_mva) & (rate_a_mva > 0)
     max_branch_viol_pu = 0.0
 
     if np.any(limit_idx):

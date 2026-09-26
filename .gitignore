@@ -7,6 +7,10 @@ __pycache__/
 venv/
 .venv/
 *.pth
+*.egg-info/
+build/
+dist/
+/runs/
 
 # datasets(upload to Hugging Face)
 ac_dataset/

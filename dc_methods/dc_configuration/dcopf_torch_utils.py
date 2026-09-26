@@ -4,6 +4,8 @@ import copy
 import time
 
 import numpy as np
+from ml_opf_bench.runtime import record_epoch
+
 import torch
 import torch.nn as nn
 
@@ -105,6 +107,7 @@ def train_with_early_stopping(model, optimizer, train_tensors, batch_loss, val_l
     best_val, best_epoch, best_state, stale = float('inf'), 0, None, 0
 
     for epoch in range(1, n_epochs + 1):
+        record_epoch(epoch)
         model.train()
         epoch_loss, n_seen = 0.0, 0
         perm = torch.randperm(n_train, device=device)

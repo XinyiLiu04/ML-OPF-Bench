@@ -1,5 +1,7 @@
 """Linear regression baseline: one least-squares map from bus loads to non-slack dispatch."""
 
+from ml_opf_bench.runtime import TrainingState, is_managed
+
 import time
 
 import numpy as np
@@ -27,6 +29,8 @@ def lr_experiment(case_name, params_path, data_path, n_train_use, seed, **ignore
     t0 = time.perf_counter()
     model.fit(pd_bus[train_idx], pg[train_idx][:, non_slack])
     train_time = time.perf_counter() - t0
+    if is_managed():
+        return TrainingState(model, params, train_time, dict())
 
     pg_pred = reconstruct_full_pg(model.predict(pd_bus[test_idx]), pd_bus[test_idx], params)
     metrics = evaluate_dispatch(pg_pred, pg[test_idx], pd_bus[test_idx], params)

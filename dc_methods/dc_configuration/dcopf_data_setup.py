@@ -1,5 +1,7 @@
 """Constraint and sample loading, the shared train/val/test split, and slack reconstruction."""
 
+from ml_opf_bench.runtime import training_indices
+
 import os
 import re
 
@@ -123,16 +125,8 @@ def load_samples(data_path, params):
 
 
 def prepare_data_splits(n_total, n_train_use, seed):
-    """Shuffle once, keep the first n_train_use indices, and split them 10:1:1 into train/val/test."""
-    if n_train_use > n_total:
-        raise ValueError(f"N_TRAIN_USE = {n_train_use} exceeds the {n_total} samples available")
-    pool = np.random.default_rng(seed).permutation(n_total)[:n_train_use]
-    n_val = n_test = n_train_use // 12
-    n_train = n_train_use - n_val - n_test
-    train_idx, val_idx, test_idx = np.split(pool, [n_train, n_train + n_val])
-    print(f"Split {n_train_use} of {n_total} samples: "
-          f"train {len(train_idx)}, val {len(val_idx)}, test {len(test_idx)}")
-    return train_idx, val_idx, test_idx
+    """Use the run-scoped cross-system or fixed-heldout scaling split."""
+    return training_indices(n_total, n_train_use, seed)
 
 
 def reconstruct_full_pg(pg_non_slack, pd_bus, params):

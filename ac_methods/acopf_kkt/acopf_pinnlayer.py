@@ -163,7 +163,7 @@ class PinnLayer(nn.Module):
         line_limit_sq = np.full(n_br, 1e10, dtype=np.float32)
         has_limit = np.zeros(n_br, dtype=bool)
         for k in range(n_br):
-            if np.isfinite(rate_a[k]) and 0 < rate_a[k] < 9000:
+            if np.isfinite(rate_a[k]) and rate_a[k] > 0:
                 line_limit_sq[k] = rate_a[k] ** 2
                 has_limit[k] = True
 

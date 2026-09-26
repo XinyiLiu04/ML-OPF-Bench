@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Linear regression baseline for ACOPF: one model per non-slack Pg and per generator Vm."""
 
+from ml_opf_bench.runtime import TrainingState, is_managed
+
 import numpy as np
 import time
 import sys
@@ -173,7 +175,8 @@ def linear_regression_experiment(
     # 2. Load dataset and fit scalers
     # ------------------------------------------------------------------
     x_data_scaled, y_data_scaled, scalers, raw_data, cost_baseline = \
-        load_and_scale_acopf_data(data_path, params, fit_scalers=True)
+        load_and_scale_acopf_data(data_path, params, fit_scalers=True,
+                                  n_train_use=n_train_use, seed=seed)
 
     n_buses = params['general']['n_buses']
     n_gen = params['general']['n_gen']
@@ -216,6 +219,8 @@ def linear_regression_experiment(
 
     model = LinearRegressionACOPF(n_gen_non_slack, n_gen)
     train_time = model.fit(X_train, y_pg_non_slack_train, y_vm_gen_train)
+    if is_managed():
+        return TrainingState(model, params, train_time, dict(scalers=scalers))
 
     # ------------------------------------------------------------------
     # 5. Evaluation

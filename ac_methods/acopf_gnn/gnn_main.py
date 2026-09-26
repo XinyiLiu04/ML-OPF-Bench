@@ -5,6 +5,8 @@ Run generate_subopt_state.py first to produce the _subopt_*.csv files next to th
 sample data, then run this script.
 """
 
+from ml_opf_bench.runtime import TrainingState, is_managed, record_epoch
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -107,7 +109,8 @@ def spectral_gnn_acopf_experiment(
     # 3. ACOPF labels and scalers
     # ------------------------------------------------------------------
     x_data_scaled, y_data_scaled, scalers, raw_data, cost_baseline = \
-        load_and_scale_acopf_data(data_path, params, fit_scalers=True)
+        load_and_scale_acopf_data(data_path, params, fit_scalers=True,
+                                  n_train_use=n_train_use, seed=seed)
 
     n_loads = params['general']['n_loads']
     if cost_baseline:
@@ -123,7 +126,14 @@ def spectral_gnn_acopf_experiment(
     data_dir = os.path.dirname(data_path)
     print(f"\n[Sub-optimal State]")
     print(f"  Loading from: {data_dir}")
-    subopt_x_raw, subopt_converged = load_subopt_state(data_dir, case_name, params)
+    if is_managed():
+        from ml_opf_bench.gnn_features import load_gnn_features
+        from ml_opf_bench.runtime import current_experiment
+        rows = np.concatenate(prepare_data_splits(x_data_scaled, y_data_scaled, n_train_use, seed))
+        subopt_x_raw, subopt_converged = load_gnn_features(
+            case_name, params_path, data_path, params, raw_data['x'], rows, current_experiment().workers)
+    else:
+        subopt_x_raw, subopt_converged = load_subopt_state(data_dir, case_name, params)
 
     if len(subopt_x_raw) != len(x_data_scaled):
         raise ValueError(
@@ -138,7 +148,9 @@ def spectral_gnn_acopf_experiment(
     # The scaler is fitted on converged rows only: the remaining rows hold whatever
     # the generator wrote for a failed solve and would distort the MinMax range
     subopt_scaler = MinMaxScaler()
-    subopt_scaler.fit(subopt_x_raw[subopt_converged])
+    fit_idx = prepare_data_splits(x_data_scaled, y_data_scaled, n_train_use, seed)[0]
+    fit_idx = fit_idx[subopt_converged[fit_idx]]
+    subopt_scaler.fit(subopt_x_raw[fit_idx])
     subopt_x_scaled = subopt_scaler.transform(subopt_x_raw).astype('float32')
     scalers['subopt_x'] = subopt_scaler
     print(f"  Scaled sub-optimal state: {subopt_x_scaled.shape} (= 4 x {n_buses} buses)")
@@ -218,6 +230,7 @@ def spectral_gnn_acopf_experiment(
     t0 = time.perf_counter()
 
     for epoch in range(1, n_epochs + 1):
+        record_epoch(epoch)
         model.train()
         epoch_loss = 0.0
         perm = torch.randperm(n_train)
@@ -260,6 +273,8 @@ def spectral_gnn_acopf_experiment(
 
     model.load_state_dict({k: v.to(device) for k, v in best_state_dict.items()})
     train_time = time.perf_counter() - t0
+    if is_managed():
+        return TrainingState(model, params, train_time, dict(scalers=scalers, predict_vm=predict_vm, graph_kernel=graph_kernel, graph_scale_k=graph_scale_k))
     print(f"Restored best model from epoch {best_epoch} (val_loss={best_val_loss:.6f})")
     print(f"Training completed in {train_time:.2f} seconds")
 

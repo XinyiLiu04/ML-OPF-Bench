@@ -19,6 +19,7 @@ def main():
     parser.add_argument('--paused-pid', type=int, required=True)
     parser.add_argument('--adopt-pid', type=int, required=True)
     parser.add_argument('--adopt-run', required=True)
+    parser.add_argument('--slots', type=int, choices=(2, 3), default=3)
     args = parser.parse_args()
     plan = json.loads(args.plan.read_text())
     out = args.root / 'runs/paper-seed42-2c1d52c'
@@ -53,7 +54,7 @@ def main():
                 assert (len(completed) == 1 and not failures and (child is None or child.returncode == 0)) or known, spec.run_id
                 print(json.dumps({'action': 'finish', 'run_id': spec.run_id, 'pid': pid, 'known_unavailable': known}), flush=True)
                 del active[pid]
-            while pending and len(active) < 3:
+            while pending and len(active) < args.slots:
                 spec = pending.pop(0)
                 assert code_version()['source_sha256'] == plan['source_sha256']
                 assert not list((out / spec.run_id).glob('*/manifest.json')), spec.run_id
@@ -67,7 +68,7 @@ def main():
                 child = subprocess.Popen(cmd)
                 active[child.pid] = (spec, child)
                 print(json.dumps({'action': 'start', 'run_id': spec.run_id, 'pid': child.pid,
-                                  'host': os.uname().nodename, 'concurrency_limit': 3}), flush=True)
+                                  'host': os.uname().nodename, 'concurrency_limit': args.slots}), flush=True)
             time.sleep(10)
         print('PARTITION_FINISHED', flush=True)
 

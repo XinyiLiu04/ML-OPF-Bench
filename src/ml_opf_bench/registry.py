@@ -14,7 +14,7 @@ AC = {
     "MU": ("acopf_mu.py", "lagrangian_acopf_experiment", {}),
     "KKT": ("acopf_kkt/acopf_pinn_main.py", "acopf_pinn_experiment", {}),
     "GNN": ("acopf_gnn/gnn_main.py", "spectral_gnn_acopf_experiment", {"K": 4, "predict_vm": False}),
-    "AS": ("acopf_as.py", "active_set_acopf_experiment", {"top_k": 3}),
+    "AS": ("acopf_as.py", "active_set_acopf_experiment", {"top_k": 3, "active_set_type": "pg_only"}),
     "RL": ("acopf_rl/acopf_rl.py", "acopf_rl_experiment", {"action_bounds": "physical"}),
     "NGT": ("acopf_ngt/unsupervised_learning_acopf.py", "train_deepopf_ngt_smoothed", {}),
     "E-NGT": ("acopf_ngt/semi_supervised_acopf.py", "train_extended_deepopf_ngt_smoothed", {"n_labeled": 300}),

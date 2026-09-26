@@ -29,7 +29,7 @@ class PinnLayer(nn.Module):
         gen, bus, br = p['generator'], p['bus'], p['branch']
         for key in ('pg_min', 'pg_max', 'qg_min', 'qg_max', 'cost_c1', 'cost_c2'):
             buf(key, gen[key].flatten())
-        for key in ('vm_min', 'vm_max', 'gs', 'bs'):
+        for key in ('vm_min', 'vm_max', 'gs', 'bs', 'pd_base', 'qd_base'):
             buf(key, bus[key].flatten())
         fi = np.array([lookup[int(b)] for b in br['f_bus']], dtype=int)
         ti = np.array([lookup[int(b)] for b in br['t_bus']], dtype=int)
@@ -70,8 +70,8 @@ class PinnLayer(nn.Module):
         for indices,power,reactive in [(self.f_idx,pf,qf),(self.t_idx,pt,qt)]:
             pinj = pinj.index_add(1,indices,power)
             qinj = qinj.index_add(1,indices,reactive)
-        pd = vr.new_zeros(vr.shape).index_add(1,self.load_to_bus_idx,inputs[:,:self.n_loads])
-        qd = vr.new_zeros(vr.shape).index_add(1,self.load_to_bus_idx,inputs[:,self.n_loads:])
+        pd = self.pd_base.unsqueeze(0).expand(vr.shape[0],-1).index_copy(1,self.load_to_bus_idx,inputs[:,:self.n_loads])
+        qd = self.qd_base.unsqueeze(0).expand(vr.shape[0],-1).index_copy(1,self.load_to_bus_idx,inputs[:,self.n_loads:])
         # Net branch export plus shunts equals generation minus demand.
         balance = torch.cat((pinj+self.gs*vm.square()-pg@self.cg.T+pd,
                              qinj-self.bs*vm.square()-qg@self.cg.T+qd),dim=1)

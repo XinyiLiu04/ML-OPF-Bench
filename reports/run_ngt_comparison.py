@@ -7,9 +7,11 @@ import sys
 
 p=argparse.ArgumentParser()
 p.add_argument('--root',type=Path,required=True)
+p.add_argument('--snapshot',default='paper-comparison-cba535c')
+p.add_argument('--output-name',default='ngt-variant-comparison-cba535c')
 a=p.parse_args()
-snapshot=a.root/'snapshots/paper-comparison-cba535c'
-out=a.root/'runs/ngt-variant-comparison-cba535c'
+snapshot=a.root/'snapshots'/a.snapshot
+out=a.root/'runs'/a.output_name
 if out.exists():
     raise RuntimeError('Diagnostic output already exists; review before any continuation')
 out.mkdir()

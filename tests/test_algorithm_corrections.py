@@ -52,7 +52,7 @@ def test_ac_kkt_exact_one_bus_solution_and_backward():
                           'gen_bus_ids':[1],'load_bus_ids':[1]},
               'generator': {k:np.array(v) for k,v in {'pg_min':[0.],'pg_max':[2.],
                   'qg_min':[-1.],'qg_max':[1.],'cost_c1':[3.],'cost_c2':[2.]}.items()},
-              'bus':{k:np.array(v) for k,v in {'vm_min':[.9],'vm_max':[1.1],'gs':[0.],'bs':[0.]}.items()},
+              'bus':{k:np.array(v) for k,v in {'vm_min':[.9],'vm_max':[1.1],'gs':[0.],'bs':[0.],'pd_base':[.5],'qd_base':[.2]}.items()},
               'branch':{k:np.array([]) for k in ('f_bus','t_bus','r_pu','x_pu','b_pu','tap_ratio','shift_rad',
                                                 'rate_a','angmin_rad','angmax_rad')}}
     layer=PinnLayer(params,[2],[2],[2]).double()
@@ -103,3 +103,28 @@ def test_ac_branch_operators_match_pypower():
         _,yf,yt=makeYbus(pp['baseMVA'],pp['bus'],pp['branch'])
         np.testing.assert_allclose(layer.yf_r.numpy()+1j*layer.yf_i.numpy(),yf.toarray(),rtol=2e-6,atol=2e-5)
         np.testing.assert_allclose(layer.yt_r.numpy()+1j*layer.yt_i.numpy(),yt.toarray(),rtol=2e-6,atol=2e-5)
+
+
+def test_ngt_true_voltage_preserves_shunts_and_fixed_loads():
+    import pandas as pd
+    from algebraic_power_flow import AlgebraicPowerFlow
+    from ac_configuration.acopf_data_setup import load_parameters_from_csv
+    from ml_opf_bench.config import dataset_paths
+    for case,scenario in [('case30','base'),('case118','base'),('case300','base'),('case118','heavier_loads')]:
+        paths=dataset_paths(ROOT,'ac',case,scenario)
+        params=load_parameters_from_csv(paths.case_name,paths.params_path)
+        frames={k:pd.read_csv(paths.data_path.with_name(paths.case_name+'_'+k+'.csv'),nrows=4)
+                for k in ('pd','qd','vm','va','pg','qg')}
+        ids=[int(c.replace('pd','').replace('_','')) for c in frames['pd'].columns]
+        params['general']['load_bus_ids']=np.array(ids)
+        params['general']['n_loads']=len(ids)
+        engine=AlgebraicPowerFlow(params,'cpu')
+        bids=params['general']['bus_ids']
+        t=lambda v:torch.tensor(v,dtype=torch.float32)
+        vm=t(frames['vm'][[f'vm_{i}' for i in bids]].to_numpy())
+        va=t(frames['va'][[f'va_{i}' for i in bids]].to_numpy())
+        result=engine(vm[:,engine.nonzib_idx],va[:,engine.nonzib_idx],t(frames['pd'].to_numpy()),t(frames['qd'].to_numpy()))
+        torch.testing.assert_close(result['Pd_pred'],result['Pd_demanded'],atol=3e-3,rtol=1e-4)
+        torch.testing.assert_close(result['Qd_pred'],result['Qd_demanded'],atol=3e-3,rtol=1e-4)
+        torch.testing.assert_close(result['Pg'],t(frames['pg'].to_numpy()),atol=3e-3,rtol=1e-4)
+        torch.testing.assert_close(result['Qg'],t(frames['qg'].to_numpy()),atol=3e-3,rtol=1e-4)

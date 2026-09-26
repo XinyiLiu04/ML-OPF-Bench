@@ -252,6 +252,8 @@ def load_parameters_from_csv(case_name, params_path):
         'bus': {
             'vm_min': vm_min,
             'vm_max': vm_max,
+            'pd_base': bus_data['pd_pu'].values.astype(DTYPE),
+            'qd_base': bus_data['qd_pu'].values.astype(DTYPE),
             'gs': bus_gs,
             'bs': bus_bs,
         },

@@ -105,12 +105,12 @@ class AlgebraicPowerFlow:
         gen_bus_ids = set(int(g) for g in params['general']['gen_bus_ids'])
         bus_id_to_idx = params['general']['bus_id_to_idx']
 
-        load_only_pos = [i for i, bid in enumerate(load_bus_ids)
-                         if int(bid) not in gen_bus_ids]
-        self.load_only_pos = torch.tensor(load_only_pos, dtype=torch.long, device=device)
         self.load_only_bus_idx = torch.tensor(
-            [bus_id_to_idx[int(load_bus_ids[i])] for i in load_only_pos],
+            [i for i, bid in enumerate(params['general']['bus_ids'])
+             if int(bid) not in gen_bus_ids and not zib_mask[i]],
             dtype=torch.long, device=device)
+        self.pd_base = torch.as_tensor(params['bus']['pd_base'], dtype=torch.float32, device=device)
+        self.qd_base = torch.as_tensor(params['bus']['qd_base'], dtype=torch.float32, device=device)
 
         self.load_bus_idx = torch.tensor(
             [bus_id_to_idx[int(bid)] for bid in load_bus_ids],
@@ -200,22 +200,17 @@ class AlgebraicPowerFlow:
         pf, qf, pt, qt = self.branch_flows(v_all, theta_all)
 
         # Generation is what is left once the demanded load is added back
-        Pd_full = torch.zeros(batch, n, device=self.device)
-        Qd_full = torch.zeros(batch, n, device=self.device)
+        Pd_full = self.pd_base.unsqueeze(0).expand(batch, -1)
+        Qd_full = self.qd_base.unsqueeze(0).expand(batch, -1)
         Pd_full = Pd_full.index_copy(1, self.load_bus_idx, Pd)
         Qd_full = Qd_full.index_copy(1, self.load_bus_idx, Qd)
 
         Pg = (P_inject + Pd_full)[:, self.gen_bus_idx]
         Qg = (Q_inject + Qd_full)[:, self.gen_bus_idx]
 
-        # At a load bus with no generator the injection is minus the delivered load
-        # minus what the bus shunt draws, so the shunt term is removed to recover the
-        # load the voltage profile actually serves
-        vm_sq_lo = v_all[:, self.load_only_bus_idx] ** 2
-        Pd_pred = -P_inject[:, self.load_only_bus_idx] \
-            - self.gs[:, self.load_only_bus_idx] * vm_sq_lo
-        Qd_pred = -Q_inject[:, self.load_only_bus_idx] \
-            + self.bs[:, self.load_only_bus_idx] * vm_sq_lo
+        # Y already includes shunts, so nongenerator injections equal minus load.
+        Pd_pred = -P_inject[:, self.load_only_bus_idx]
+        Qd_pred = -Q_inject[:, self.load_only_bus_idx]
 
         return {
             'Pg': Pg,
@@ -230,8 +225,8 @@ class AlgebraicPowerFlow:
             'Q_inject': Q_inject,
             'Pd_pred': Pd_pred,
             'Qd_pred': Qd_pred,
-            'Pd_demanded': Pd[:, self.load_only_pos],
-            'Qd_demanded': Qd[:, self.load_only_pos],
+            'Pd_demanded': Pd_full[:, self.load_only_bus_idx],
+            'Qd_demanded': Qd_full[:, self.load_only_bus_idx],
             'v_beta': v_beta,
             'theta_beta': theta_beta,
         }

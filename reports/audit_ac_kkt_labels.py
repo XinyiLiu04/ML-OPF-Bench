@@ -51,9 +51,12 @@ def audit(case, scenario, count):
     x=tensor(np.hstack((raw['pd'].to_numpy(),raw['qd'].to_numpy())))
     with torch.no_grad():
         parts=layer.residual_components(o,x)
-        _,cons,_=layer.physical_terms(o['v_rect'],o['pg_qg'],x)
+        balance,cons,_=layer.physical_terms(o['v_rect'],o['pg_qg'],x)
     result={'case':case,'scenario':scenario,'samples':len(vm),'files':files,
             'note':'Angle and reference dual labels are unavailable; set to zero for this diagnostic. Not an optimality certificate.',
+            'balance_max_abs':float(balance.abs().max()),
+            'reference_max_abs':float(o['v_rect'][:,layer.n_buses+layer.slack_bus_idx].abs().max()),
+            'primal_by_family':{k:float(v.relu().sum(1).mean()) for k,v in cons.items()},
             'components':{k:{'mean':float(v.mean()),'max':float(v.max())} for k,v in parts.items()},
             'complementarity_by_family':{k:float((o[k]*v).abs().sum(1).mean()) for k,v in cons.items()}}
     return result

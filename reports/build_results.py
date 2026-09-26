@@ -44,6 +44,25 @@ def collect(root, source_sha, seed):
             if manifest["code"]["source_sha256"] == source_sha and experiment == expected:
                 attempts.append(marker.parent)
         if not attempts:
+            failures = []
+            for marker in (root / spec.run_id).glob("*/failed.json"):
+                manifest = read(marker.parent / "manifest.json")
+                experiment = manifest["experiment"]
+                if (spec.method == "AS" and manifest["code"]["source_sha256"] == source_sha
+                        and experiment == spec.as_dict() | {"workers": experiment["workers"]}
+                        and read(marker)["error"].startswith("No validation sample shares an active set with training;")):
+                    failures.append(marker)
+            if failures:
+                marker = sorted(failures)[-1]
+                scenarios = ["base"] + (["larger_variance", "heavier_loads"] if spec.case == "case118" else [])
+                for scenario in scenarios:
+                    rows.append({"formulation": spec.formulation, "case": spec.case, "mode": spec.mode,
+                                 "train_size": spec.train_size, "scenario": scenario, "method": spec.method,
+                                 "attempt": str(marker.parent), "source_sha256": source_sha,
+                                 "status": "unavailable", "reason": read(marker)["error"],
+                                 "epochs": None, "steps": None, "raw_metrics": {},
+                                 "metrics": dict.fromkeys([*KEYS[spec.formulation], "inference_ms", "train_time_s", "viol_total"])})
+                continue
             missing.append(spec.run_id)
             continue
         attempt = sorted(attempts)[-1]
@@ -62,6 +81,7 @@ def collect(root, source_sha, seed):
                 rows.append({"formulation": spec.formulation, "case": spec.case, "mode": spec.mode,
                              "train_size": spec.train_size, "scenario": scenario, "method": method,
                              "attempt": str(attempt), "source_sha256": source_sha,
+                             "status": "completed",
                              "epochs": metadata["epochs_completed"], "steps": metadata["environment_steps"],
                              "metrics": normalized, "raw_metrics": metrics})
     if missing:
@@ -89,6 +109,9 @@ def tables(rows, output):
             "are in per unit. Timings include preprocessing and method postprocessing. "
             "Epochs are executed training epochs; RL reports environment steps. "
             "No uncertainty across seeds is claimed."]
+    limitations = sorted({r["case"] + " " + r["formulation"].upper() + " " + r["method"] + ": " + r["reason"]
+                          for r in rows if r["status"] == "unavailable"})
+    text += [r"\paragraph{Unavailable methods.}" + " ".join(limitations)] if limitations else []
     for form in ("dc", "ac"):
         columns = list(KEYS[form]) + ["inference_ms", "train_time_s"]
         for mode in ("cross-system", "scaling"):

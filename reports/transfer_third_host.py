@@ -19,7 +19,7 @@ import json,subprocess
 root=Path('/home/ubuntu/lxy-west2')
 with (root/'logs/transfer-complete.json').open('x') as f:json.dump({'sender_exit':0,'receiver_exit':0},f)
 with (root/'logs/third-host-bootstrap.log').open('x') as log:
- p=subprocess.Popen(['/usr/bin/python3','-u',str(root/'logs/third_host_bootstrap.py'),'--root',str(root)],stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
+ p=subprocess.Popen(['/home/ubuntu/lxy-ml-opf-env/bin/python','-u',str(root/'logs/third_host_bootstrap.py'),'--root',str(root)],stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
 print('BOOTSTRAP_PID',p.pid)
 '''
 import shlex

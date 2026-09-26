@@ -2,7 +2,7 @@
 
 ## Decision
 
-Implementation gradient checks pass; the paired primal/dual label audit does not pass. Keep supervised-dual AC KKT formal runs quarantined. Do not infer label correctness from finite training or checkpoint replay.
+UPDATED after four authorized diagnostic sample reproductions: the earlier missing-constraint blocker is resolved. Existing primal and exported dual labels reproduce. The reduced KKT layer omitted PowerModels explicit branch P/Q variable-bound multipliers. These eight per-branch heads and their constraints are now included, learned through physics only. Existing CSV supervision is unchanged. Formal versioned runs may proceed after execution preflights; this is not a claim that trained models will converge.
 
 ## Implementation checks
 
@@ -35,9 +35,22 @@ Worst angle residual rows (zero-based within the inspected prefix): case30=47, c
 |---|---|---|
 | DC KKT | Three cross-system plus six case118 scaling configurations | Corrected versioned execution already authorized; preserve old attempts |
 | AC NGT/E-NGT | Three cases for each method | Corrected-physics modified variants; first west queue active; case118 model reused for both shifts |
-| AC KKT | Three cross-system plus six case118 scaling configurations | Hold until paired-label issue is resolved or an explicitly documented alternative protocol is selected |
+| AC KKT | Three cross-system plus six case118 scaling configurations | Released after flow-bound correction; run in a new immutable snapshot |
 | AC KKT direct metric | Saved predictions/checkpoints | Reevaluate full pi-model two-end relative overload; this alone requires no retraining |
 | AC AS | Thermal-label mapping change | No retraining: implementation does not consume thermal duals |
 | Other AC/DC methods | No demonstrated training impact from these targeted changes | Continue existing immutable-source runs and independent result audits |
 
 Counts describe configurations, including ones not yet run; they are not counts of completed experiments that all need repeating. The original AC300AS unavailable outcome remains. No extra seeds, no DC RL, no snapshot edits.
+
+## Authorized four-sample diagnostic resolution
+
+New primal/dual solves reproduce old labels to numerical precision, refuting a pairing mismatch for these four samples. Adding lower/upper multipliers for from/to P and Q reduces every checked voltage gradient component below1e-5. Artifacts: runs/corrections-v1/diagnostic-pairs-{output-v2,comparison-v3}.json. Only the same four authorized sample inputs were solved; first extraction omitted flow-bound duals, so these same four were rerun to extract them. No dataset CSV was modified. These are not reference timing measurements.
+
+| Dataset | Full maximum voltage-magnitude derivative | Full maximum non-reference angle derivative |
+|---|---:|---:|
+| case30 / base | 5.8044959e-07 | 4.0946075e-07 |
+| case118 / base | 3.2726422e-08 | 1.5917014e-06 |
+| case300 / base | 5.7780826e-07 | 1.5942413e-06 |
+| case118 / heavier_loads | 1.2175172e-08 | 1.6808775e-06 |
+
+The earlier label-pairing hypothesis above is retained as audit history, not the final diagnosis. The bounds are redundant for primal feasibility under the apparent-power limit, but their multipliers matter when retaining solver-exported duals. Missing bound multipliers are free network heads constrained by nonnegativity/complementarity and stationarity, without manufacturing supervisory labels. Finite Ipopt tolerances and bound relaxation leave small feasibility residuals and nonzero aggregate complementarity (especially on case300); no exact optimality certificate is claimed.

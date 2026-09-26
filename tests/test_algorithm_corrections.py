@@ -62,6 +62,8 @@ def test_ac_kkt_exact_one_bus_solution_and_backward():
     for k,size in [('mu_g_u',2),('mu_g_d',2),('mu_v_u',1),('mu_v_d',1),
                    ('mu_sm_fr',0),('mu_sm_to',0),('mu_ang_u',0),('mu_ang_d',0)]:
         o[k]=t(np.zeros((1,size)))
+    for end in ('pf','qf','pt','qt'):
+        for side in ('u','d'):o[f'mu_{end}_{side}']=t(np.zeros((1,0)))
     parts=layer.residual_components(o,t([[.5,.2]]))
     for value in parts.values():
         torch.testing.assert_close(value,torch.zeros(1,dtype=torch.double),atol=1e-12,rtol=0)
@@ -218,6 +220,9 @@ def test_ac_kkt_stationarity_against_independent_powerflow_finite_difference():
                'mu_sm_fr':abs(sf)**2-p['branch']['rate_a']**2,
                'mu_sm_to':abs(st)**2-p['branch']['rate_a']**2,
                'mu_ang_u':delta-p['branch']['angmax_rad'],'mu_ang_d':p['branch']['angmin_rad']-delta}
+            for name,flow in [('pf',sf.real),('qf',sf.imag),('pt',st.real),('qt',st.imag)]:
+                c[f'mu_{name}_u']=flow-p['branch']['rate_a']
+                c[f'mu_{name}_d']=-flow-p['branch']['rate_a']
             cost=(p['generator']['cost_c2'].ravel()*pg**2+p['generator']['cost_c1'].ravel()*pg).sum()
             return cost+o['lambda_p'].numpy().ravel()@np.r_[bal.real,bal.imag]+.7*angle[layer.slack_bus_idx]+sum(o[k].numpy().ravel()@b for k,b in c.items())
         for _ in range(5):

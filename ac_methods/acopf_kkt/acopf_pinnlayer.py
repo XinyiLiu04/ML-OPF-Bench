@@ -38,6 +38,7 @@ class PinnLayer(nn.Module):
             buf(key, br[key])
         rate = np.asarray(br['rate_a'])
         buf('rate_sq', np.where(np.isfinite(rate) & (rate > 0), rate**2, 0))
+        buf('flow_limit', np.where(np.isfinite(rate) & (rate > 0), rate, 0))
         buf('rated', (np.isfinite(rate) & (rate > 0)).astype(float))
         # MATPOWER pi model: charging at both ends; complex tap at from end.
         from ac_configuration.acopf_branch import branch_coefficients
@@ -85,6 +86,10 @@ class PinnLayer(nn.Module):
             'mu_ang_u': torch.where(self.angmax_rad < 2*np.pi-1e-6,delta-self.angmax_rad,torch.zeros_like(delta)),
             'mu_ang_d': torch.where(self.angmin_rad > -2*np.pi+1e-6,self.angmin_rad-delta,torch.zeros_like(delta)),
         }
+        # PowerModels also bounds each explicit branch P/Q variable by +/- rate.
+        for name, flow in [('pf',pf),('qf',qf),('pt',pt),('qt',qt)]:
+            inequalities[f'mu_{name}_u'] = (flow-self.flow_limit)*self.rated
+            inequalities[f'mu_{name}_d'] = (-flow-self.flow_limit)*self.rated
         cost = (self.cost_c2*pg.square()+self.cost_c1*pg).sum(1)
         return balance, inequalities, cost
 

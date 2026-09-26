@@ -70,6 +70,10 @@ class DenseCoreNetwork(nn.Module):
         self.lg_mu_ang_u = _build_output_layer(lg_last, n_branches)
         self.lg_mu_ang_d = _build_output_layer(lg_last, n_branches)
         self.lg_lambda_ref = _build_output_layer(lg_last, 1)
+        self.flow_bound_heads = nn.ModuleDict({
+            f'mu_{end}_{side}': _build_output_layer(lg_last, n_branches)
+            for end in ('pf', 'qf', 'pt', 'qt') for side in ('u', 'd')
+        })
 
     def forward(self, x):
         """Return a dict with the primal predictions and every dual variable."""
@@ -90,4 +94,5 @@ class DenseCoreNetwork(nn.Module):
             'mu_ang_u': self.lg_mu_ang_u(lg_feat),
             'mu_ang_d': self.lg_mu_ang_d(lg_feat),
             'lambda_ref': self.lg_lambda_ref(lg_feat),
+            **{key: head(lg_feat) for key, head in self.flow_bound_heads.items()},
         }

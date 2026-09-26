@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Supervised means over labeled rows plus a physical KKT residual over all rows.
 
-Angle and reference multipliers have no exported labels and are trained through KKT.
+Angle, reference and branch P/Q-bound multipliers have no exported labels and are trained through KKT.
 """
 
 import torch
@@ -46,7 +46,7 @@ class PinnModel(nn.Module):
         n_duals = (2 * self.n_buses
                    + 4 * self.n_gen
                    + 2 * self.n_buses
-                   + 2 * self.n_branches)
+                   + 12 * self.n_branches + 1)
 
         print(f"  PinnModel initialized:")
         print(f"    Loss weights: P={lambda_P}, V={lambda_V}, L={lambda_L}, "

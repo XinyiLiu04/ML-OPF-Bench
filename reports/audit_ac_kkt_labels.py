@@ -61,6 +61,9 @@ def audit(case, scenario, count, thermal_mapping=None):
             o[end][:,column]=source[:,positions[limited[j//2]]]
     for key in ('mu_ang_u','mu_ang_d'):
         o[key]=tensor(np.zeros((len(vm),len(bids))))
+    for end in ('pf','qf','pt','qt'):
+        for side in ('u','d'):
+            o[f'mu_{end}_{side}']=tensor(np.zeros((len(vm),len(bids))))
     x=tensor(np.hstack((raw['pd'].to_numpy(),raw['qd'].to_numpy())))
     with torch.no_grad():
         parts=layer.residual_components(o,x)

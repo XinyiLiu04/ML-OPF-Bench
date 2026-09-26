@@ -6,11 +6,9 @@ import hashlib
 import re
 from pathlib import Path
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 
+from dataclasses import replace
 from ml_opf_bench.config import paper_experiments
 
 
@@ -34,23 +32,55 @@ def read(path):
     return json.loads(path.read_text())
 
 
+SOURCES = {
+    "original": ("paper-seed42-2c1d52c", "39caf5accb8e14f0ae2ae179955629ce16e50491db439714d42930542ca5c0c0"),
+    "dc_kkt": ("paper-seed42-correction-a824a10", "6956a7091fef4522a39060ff3f17d9f59104fa152fb199cad783d79e429a01f2"),
+    "ac_kkt": ("paper-seed42-kkt-43b8584", "be0e5c8b1e6dee8c68a0bdfbd1c816b0076c2e1cfa9d7ae0292948d362440e68"),
+    "ac_as": ("paper-seed42-as-pgonly-606ced8", "507e1986f14cb7a3efc051a0e811f438b1a89982783b687b88081d9edcd8de82"),
+    "ac_ngt": ("paper-seed42-ngt-physical-v2", "97b710dcafb13be5361ba7c4c17d403a4d0dea3a5400e47a1488bb6a9294049b"),
+    "paper": ("paper-seed42-ngt-paper-b2b362d", "59c274708d9291ad7e11e7d8f374ac2c34edf62c5e27be9ee649a0ed4fe216ea"),
+}
+
+
+def source_key(spec):
+    if spec.variant == "paper":
+        return "paper"
+    if spec.method == "KKT":
+        return spec.formulation + "_kkt"
+    if spec.formulation == "ac" and spec.method == "AS":
+        return "ac_as"
+    if spec.formulation == "ac" and spec.method in ("NGT", "E-NGT"):
+        return "ac_ngt"
+    return "original"
+
+
 def collect(root, source_sha, seed):
     rows = []
     missing = []
-    for spec in paper_experiments(seed):
+    specs = list(paper_experiments(seed))
+    if source_sha is None:
+        specs += [replace(spec, variant="paper") for spec in specs
+                  if spec.formulation == "ac" and spec.method in ("NGT", "E-NGT")
+                  and spec.mode == "cross-system"]
+    for spec in specs:
+        if source_sha is None:
+            folder, expected_sha = SOURCES[source_key(spec)]
+            run_root = root / folder
+        else:
+            run_root, expected_sha = root, source_sha
         attempts = []
-        for marker in (root / spec.run_id).glob("*/completed.json"):
+        for marker in (run_root / spec.run_id).glob("*/completed.json"):
             manifest = read(marker.parent / "manifest.json")
-            experiment = manifest["experiment"]
+            experiment = {"variant": "modified"} | manifest["experiment"]
             expected = spec.as_dict() | {"workers": experiment["workers"]}
-            if manifest["code"]["source_sha256"] == source_sha and experiment == expected:
+            if manifest["code"]["source_sha256"] == expected_sha and experiment == expected:
                 attempts.append(marker.parent)
         if not attempts:
             failures = []
-            for marker in (root / spec.run_id).glob("*/failed.json"):
+            for marker in (run_root / spec.run_id).glob("*/failed.json"):
                 manifest = read(marker.parent / "manifest.json")
-                experiment = manifest["experiment"]
-                if (spec.method == "AS" and manifest["code"]["source_sha256"] == source_sha
+                experiment = {"variant": "modified"} | manifest["experiment"]
+                if (source_sha is not None and spec.method == "AS" and manifest["code"]["source_sha256"] == expected_sha
                         and experiment == spec.as_dict() | {"workers": experiment["workers"]}
                         and read(marker)["error"].startswith("No validation sample shares an active set with training;")):
                     failures.append(marker)
@@ -60,14 +90,16 @@ def collect(root, source_sha, seed):
                 for scenario in scenarios:
                     rows.append({"formulation": spec.formulation, "case": spec.case, "mode": spec.mode,
                                  "train_size": spec.train_size, "scenario": scenario, "method": spec.method,
-                                 "attempt": str(marker.parent), "source_sha256": source_sha,
+                                 "attempt": str(marker.parent), "source_sha256": expected_sha,
                                  "status": "unavailable", "reason": read(marker)["error"],
                                  "epochs": None, "steps": None, "raw_metrics": {},
                                  "metrics": dict.fromkeys([*KEYS[spec.formulation], "inference_ms", "train_time_s", "viol_total"])})
                 continue
             missing.append(spec.run_id)
             continue
-        attempt = sorted(attempts)[-1]
+        if len(attempts) != 1:
+            raise ValueError(f"Ambiguous accepted attempts: {spec.run_id}")
+        attempt = attempts[0]
         metadata = read(attempt / "checkpoint_metadata.json")
         scenarios = ["base"]
         if spec.case == "case118" and spec.mode == "cross-system":
@@ -81,9 +113,9 @@ def collect(root, source_sha, seed):
                 normalized["viol_total"] = sum(normalized[k] for k in normalized if k.startswith("viol_")) \
                     if all(normalized[k] is not None for k in normalized if k.startswith("viol_")) else None
                 rows.append({"formulation": spec.formulation, "case": spec.case, "mode": spec.mode,
-                             "train_size": spec.train_size, "scenario": scenario, "method": method,
-                             "attempt": str(attempt), "source_sha256": source_sha,
-                             "status": "completed",
+                             "train_size": spec.train_size, "scenario": scenario, "method": method + (" (paper)" if spec.variant == "paper" else ""),
+                             "attempt": str(attempt), "source_sha256": expected_sha,
+                             "status": "completed", "variant": spec.variant, "run_id": spec.run_id,
                              "epochs": metadata["epochs_completed"], "steps": metadata["environment_steps"],
                              "metrics": normalized, "raw_metrics": metrics})
     if missing:
@@ -165,7 +197,7 @@ def tables(rows, references, output):
              "The original manuscript states an Intel Xeon Platinum 8358 CPU and NVIDIA A10, "
              "but the exact timing protocol, sample count and execution conditions have not been independently verified. "
              "They are historical context, not a controlled same-hardware speedup comparison. "
-             "No new label generation or reference solve was performed.",
+             "These timings are not derived from the separate four-sample KKT diagnostic solves; original labels were preserved.",
              r"\begin{longtable}{llr}\toprule",
              r"Formulation & Case & Historical reported time (ms) \\",
              r"\midrule\endhead"]
@@ -177,6 +209,9 @@ def tables(rows, references, output):
 
 
 def plots(rows, output):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
     plt.rcParams.update({"font.size": 9, "pdf.fonttype": 42, "ps.fonttype": 42})
     fits = []
     fig, axes = plt.subplots(2, 4, figsize=(14, 7), constrained_layout=True)
@@ -234,7 +269,7 @@ def plots(rows, output):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs", type=Path, required=True)
-    parser.add_argument("--source-sha", required=True)
+    parser.add_argument("--source-sha", help="Legacy single-source mode; omit for the versioned 126-run protocol")
     parser.add_argument("--historical-manuscript", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=42)

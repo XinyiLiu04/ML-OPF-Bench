@@ -47,7 +47,7 @@ def audit(case, scenario, count, thermal_mapping=None):
                           ('mu_sm_fr','mu_sm_fr',-1),('mu_sm_to','mu_sm_to',-1)]:
         o[out]=tensor(sign*dual(name,bids if name.startswith('mu_sm') else busids))
     if thermal_mapping is not None:
-        mapping=json.loads(Path(thermal_mapping).read_text())['constraint_arcs']
+        mapping=(thermal_mapping if isinstance(thermal_mapping, dict) else json.loads(Path(thermal_mapping).read_text()))['constraint_arcs']
         limited=sorted(int(i) for i,rate in zip(bids,params['branch']['rate_a']) if np.isfinite(rate) and rate>0)
         positions={int(b):i for i,b in enumerate(bids)}
         source_fr=o['mu_sm_fr'].clone(); source_to=o['mu_sm_to'].clone()

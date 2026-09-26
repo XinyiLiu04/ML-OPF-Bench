@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'ac_methods'))
 sys.path.insert(0, str(ROOT / 'ac_methods/acopf_ngt'))
 sys.path.insert(0, str(ROOT / 'dc_methods'))
+sys.path.insert(0, str(ROOT / 'ac_methods/acopf_kkt'))
 
 
 def test_ngt_reference_and_unbounded_angles():
@@ -64,6 +65,9 @@ def test_ac_kkt_exact_one_bus_solution_and_backward():
     parts=layer.residual_components(o,t([[.5,.2]]))
     for value in parts.values():
         torch.testing.assert_close(value,torch.zeros(1,dtype=torch.double),atol=1e-12,rtol=0)
+    o['v_rect']=t([[-1.,0.]])
+    assert layer.residual_components(o,t([[.5,.2]]))['primal'].item() >= np.pi
+    o['v_rect']=t([[1.,0.]])
     o['pg_qg']=t([[.6,.2]])
     sum(layer.residual_components(o,t([[.5,.2]])).values()).sum().backward()
     assert torch.isfinite(o['pg_qg'].grad).all()
@@ -168,3 +172,58 @@ def test_thermal_loader_preserves_values_and_corrects_columns():
         for j,(bid,f,t) in enumerate(mappings[paths.case_name]['constraint_arcs']):
             end='mu_sm_fr' if f==params['branch']['f_bus'][pos[bid]] else 'mu_sm_to'
             np.testing.assert_array_equal(fixed[end][:,pos[bid]],old[j%2][:,pos[sorted(pos)[j//2]]])
+
+
+def test_ac_kkt_stationarity_against_independent_powerflow_finite_difference():
+    from acopf_pinnlayer import PinnLayer
+    from ac_configuration.acopf_data_setup import load_parameters_from_csv
+    from ac_configuration.acopf_pypower import load_case_from_csv
+    from ml_opf_bench.config import dataset_paths
+    from pypower.ext2int import ext2int
+    from pypower.makeYbus import makeYbus
+    rng=np.random.default_rng(42)
+    for case in ('case30','case118','case300'):
+        paths=dataset_paths(ROOT,'ac',case)
+        p=load_parameters_from_csv(paths.case_name,paths.params_path,dtype='float64')
+        layer=PinnLayer(p,[2],[2],[2],dtype=torch.float64).double()
+        pp=ext2int(load_case_from_csv(paths.case_name,paths.params_path))
+        y,yf,yt=makeYbus(pp['baseMVA'],pp['bus'],pp['branch'])
+        n,ng=layer.n_buses,layer.n_gen
+        v=rng.uniform(.95,1.05,n)*np.exp(1j*rng.uniform(-.1,.1,n))
+        z=np.r_[v.real,v.imag,rng.uniform(.2,.8,2*ng)]
+        x=np.r_[p['bus']['pd_base'],p['bus']['qd_base']][None,:]
+        o={'v_rect':torch.tensor(z[:2*n][None,:],requires_grad=True),
+           'pg_qg':torch.tensor(z[2*n:][None,:],requires_grad=True),
+           'lambda_p':torch.tensor(rng.normal(size=(1,2*n))),
+           'lambda_ref':torch.tensor([[.7]],dtype=torch.double)}
+        balance,cons,cost=layer.physical_terms(o['v_rect'],o['pg_qg'],torch.tensor(x))
+        for k,c in cons.items():o[k]=torch.tensor(rng.uniform(.1,1,c.shape))
+        lag=cost+(o['lambda_p']*balance).sum(1)
+        lag=lag+.7*torch.atan2(o['v_rect'][:,n+layer.slack_bus_idx],o['v_rect'][:,layer.slack_bus_idx])
+        for k,c in cons.items():lag=lag+(o[k]*c).sum(1)
+        dv,dg=torch.autograd.grad(lag.sum(),(o['v_rect'],o['pg_qg']))
+        gradient=np.r_[dv.detach().numpy().ravel(),dg.detach().numpy().ravel()]
+        def independent(a):
+            voltage=a[:n]+1j*a[n:2*n];pg=a[2*n:2*n+ng];qg=a[2*n+ng:]
+            s=voltage*np.conj(y@voltage)
+            generation=layer.cg.numpy()@(pg+1j*qg)
+            bal=s-generation+p['bus']['pd_base']+1j*p['bus']['qd_base']
+            sf=voltage[pp['branch'][:,0].astype(int)]*np.conj(yf@voltage)
+            st=voltage[pp['branch'][:,1].astype(int)]*np.conj(yt@voltage)
+            vm=abs(voltage);angle=np.angle(voltage)
+            delta=angle[layer.f_idx.numpy()]-angle[layer.t_idx.numpy()]
+            c={'mu_g_u':np.r_[pg-p['generator']['pg_max'].ravel(),qg-p['generator']['qg_max'].ravel()],
+               'mu_g_d':np.r_[p['generator']['pg_min'].ravel()-pg,p['generator']['qg_min'].ravel()-qg],
+               'mu_v_u':vm-p['bus']['vm_max'],'mu_v_d':p['bus']['vm_min']-vm,
+               'mu_sm_fr':abs(sf)**2-p['branch']['rate_a']**2,
+               'mu_sm_to':abs(st)**2-p['branch']['rate_a']**2,
+               'mu_ang_u':delta-p['branch']['angmax_rad'],'mu_ang_d':p['branch']['angmin_rad']-delta}
+            cost=(p['generator']['cost_c2'].ravel()*pg**2+p['generator']['cost_c1'].ravel()*pg).sum()
+            return cost+o['lambda_p'].numpy().ravel()@np.r_[bal.real,bal.imag]+.7*angle[layer.slack_bus_idx]+sum(o[k].numpy().ravel()@b for k,b in c.items())
+        for _ in range(5):
+            direction=rng.normal(size=len(z));direction/=np.linalg.norm(direction)
+            step=1e-6
+            numerical=(independent(z+step*direction)-independent(z-step*direction))/(2*step)
+            np.testing.assert_allclose(gradient@direction,numerical,rtol=2e-5,atol=.01)
+        actual=layer.residual_components(o,torch.tensor(x))['stationarity'].item()
+        np.testing.assert_allclose(actual,abs(gradient).sum(),rtol=1e-12)

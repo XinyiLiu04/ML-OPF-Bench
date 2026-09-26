@@ -6,7 +6,7 @@ from acopf_densecorenetwork import DenseCoreNetwork
 
 
 class PinnLayer(nn.Module):
-    def __init__(self, simulation_parameters, neurons_V, neurons_G, neurons_Lg):
+    def __init__(self, simulation_parameters, neurons_V, neurons_G, neurons_Lg, dtype=torch.float32):
         super().__init__()
         p = simulation_parameters
         g = p['general']
@@ -19,7 +19,7 @@ class PinnLayer(nn.Module):
             raise ValueError('Exactly one reference bus is required')
         self.slack_bus_idx = int(refs[0])
         def buf(name, value, integer=False):
-            self.register_buffer(name, torch.as_tensor(np.asarray(value), dtype=torch.long if integer else torch.float32))
+            self.register_buffer(name, torch.as_tensor(np.asarray(value), dtype=torch.long if integer else dtype))
         buf('non_slack_gen_idx', g['non_slack_gen_idx'], True)
         buf('gen_to_bus_idx', [lookup[int(b)] for b in g['gen_bus_ids']], True)
         buf('load_to_bus_idx', [lookup[int(b)] for b in g['load_bus_ids']], True)
@@ -97,7 +97,7 @@ class PinnLayer(nn.Module):
             if not gen.requires_grad:
                 gen = gen.detach().requires_grad_(True)
             balance, constraints, cost = self.physical_terms(v,gen,inputs)
-            ref = v[:,self.n_buses+self.slack_bus_idx]
+            ref = torch.atan2(v[:,self.n_buses+self.slack_bus_idx], v[:,self.slack_bus_idx])
             lagrangian = cost+(outputs['lambda_p']*balance).sum(1)+outputs['lambda_ref'].flatten()*ref
             primal = balance.abs().sum(1)+ref.abs()
             complementarity = torch.zeros_like(cost)

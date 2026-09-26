@@ -84,9 +84,9 @@ def compute_cost_baseline_from_data(data_dir, case_name, params):
         return None
 
 
-def load_parameters_from_csv(case_name, params_path):
+def load_parameters_from_csv(case_name, params_path, dtype="float32"):
     """Load network constraints and classify generators into slack / non-slack."""
-    DTYPE = 'float32'
+    DTYPE = dtype
 
     bus_data = pd.read_csv(os.path.join(params_path, f"{case_name}_bus_data.csv"))
     gen_data = pd.read_csv(os.path.join(params_path, f"{case_name}_gen_data.csv"))

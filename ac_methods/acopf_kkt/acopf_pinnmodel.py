@@ -1,12 +1,7 @@
 # -*- coding: utf-8 -*-
-"""PINN loss assembly.
+"""Supervised means over labeled rows plus a physical KKT residual over all rows.
 
-    L = (Nt+Nc)/Nt * [Lambda_P * MAE_g + Lambda_V * MAE_v + Lambda_L * MAE_l]
-        + Lambda_eps * MAE_eps
-
-The three supervised terms are evaluated only where the mask is 1; the KKT residual is
-evaluated everywhere, which is what lets unlabelled collocation points contribute. The
-leading factor undoes the dilution those extra points cause in the supervised averages.
+Angle and reference multipliers have no exported labels and are trained through KKT.
 """
 
 import torch
@@ -49,7 +44,7 @@ class PinnModel(nn.Module):
         self.n_branches = simulation_parameters['general']['n_branches']
 
         n_duals = (2 * self.n_buses
-                   + 2 * (self.n_gen_non_slack + self.n_gen)
+                   + 4 * self.n_gen
                    + 2 * self.n_buses
                    + 2 * self.n_branches)
 
@@ -57,7 +52,7 @@ class PinnModel(nn.Module):
         print(f"    Loss weights: P={lambda_P}, V={lambda_V}, L={lambda_L}, "
               f"eps={lambda_eps}")
         print(f"    Collocation ratio factor: {self.ratio_factor:.2f}")
-        print(f"    G branch: {self.n_gen_non_slack} (pg_ns) + {self.n_gen} (qg)")
+        print(f"    G branch: {self.n_gen} (pg) + {self.n_gen} (qg)")
         print(f"    V branch: {2 * self.n_buses} (Vr + Vi)")
         print(f"    Lm branch: {n_duals} dual variables")
 
@@ -93,9 +88,9 @@ class PinnModel(nn.Module):
         mae_eps = outputs['kkt_error'].mean()
 
         total_loss = (
-            self.ratio_factor * self.lambda_P * mae_g
-            + self.ratio_factor * self.lambda_V * mae_v
-            + self.ratio_factor * self.lambda_L * mae_l
+            self.lambda_P * mae_g
+            + self.lambda_V * mae_v
+            + self.lambda_L * mae_l
             + self.lambda_eps * mae_eps
         )
 
@@ -114,10 +109,10 @@ class PinnModel(nn.Module):
         The caller is responsible for putting the module in eval mode.
         """
         with torch.no_grad():
-            outputs = self.forward(x)
+            outputs = self.pinn_layer.core_network(x)
 
-        pg_non_slack = outputs['pg_qg'][:, :self.n_gen_non_slack]
-        qg_all = outputs['pg_qg'][:, self.n_gen_non_slack:]
+        pg_non_slack = outputs['pg_qg'][:, :self.n_gen][:, self.pinn_layer.non_slack_gen_idx]
+        qg_all = outputs['pg_qg'][:, self.n_gen:]
 
         n = self.n_buses
         Vr = outputs['v_rect'][:, :n]

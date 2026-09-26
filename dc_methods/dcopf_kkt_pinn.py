@@ -6,8 +6,8 @@ inputs and train on the residual alone.
 
 Stationarity is imposed per generator with the dataset's JuMP signs,
     c1 + 2 c2 pg - lambda + mu_g_max - mu_g_min + (PTDF Cg)^T (mu_line_max - mu_line_min) = 0,
-and vanishes on exact ground truth. The complementarity and dual-feasibility terms use the
-scaled multipliers, as in the reference implementation, which keeps them O(1).
+and vanishes on exact ground truth. The complementarity and dual-feasibility terms use positive multiplicative
+normalization, preserving each physical multiplier zero and sign.
 """
 
 from ml_opf_bench.runtime import TrainingState, is_managed, record_epoch
@@ -46,6 +46,8 @@ class KKTConstants:
         self.flow_per_gen = array(c['ptdf'][mask] @ c['gen_bus_map'])
         self.shift = {n: array(dual_scalers[n].min_) for n in DUALS}
         self.scale = {n: array(dual_scalers[n].scale_) for n in DUALS}
+        self.penalty_scale = {n: array(1.0 / np.maximum(1.0, np.maximum(
+            np.abs(dual_scalers[n].data_min_), np.abs(dual_scalers[n].data_max_)))) for n in DUALS}
         self.n_g, self.n_c, self.load_scale = len(c['pg_max']), max(int(mask.sum()), 1), load_scale
 
 
@@ -68,7 +70,7 @@ def kkt_residual(pg_full, duals_scaled, pd_bus, k):
     stationarity = (k.c1 + 2 * k.c2 * pg_full - phys['lambda'] + phys['mu_g_max'] - phys['mu_g_min']
                     + (phys['mu_line_max'] - phys['mu_line_min']) @ k.flow_per_gen)
 
-    s = duals_scaled
+    s = {n: phys[n] * k.penalty_scale[n] for n in DUALS}
     complementarity = ((abs(s['mu_g_max'] * (p_norm - k.p_max_norm))
                         + abs(s['mu_g_min'] * (k.p_min_norm - p_norm))).sum(-1) / k.n_g
                        + (abs(s['mu_line_max'] * over) + abs(s['mu_line_min'] * under)).sum(-1) / line_scale)

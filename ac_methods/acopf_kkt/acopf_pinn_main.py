@@ -88,7 +88,7 @@ def prepare_pinn_targets(raw_data, indices, params, duals):
 
     targets = {
         'pg_qg': np.hstack([
-            raw_data['pg_non_slack'][indices],
+            raw_data['pg'][indices],
             raw_data['qg'][indices],
         ]).astype('float32'),
         'v_rect': compute_rect_voltage(
@@ -98,34 +98,33 @@ def prepare_pinn_targets(raw_data, indices, params, duals):
     if duals is None:
         n = len(indices)
         targets['lambda_p'] = np.zeros((n, 2 * n_buses), dtype='float32')
-        targets['mu_g_u'] = np.zeros((n, n_gen_ns + n_gen), dtype='float32')
-        targets['mu_g_d'] = np.zeros((n, n_gen_ns + n_gen), dtype='float32')
+        targets['mu_g_u'] = np.zeros((n, 2 * n_gen), dtype='float32')
+        targets['mu_g_d'] = np.zeros((n, 2 * n_gen), dtype='float32')
         targets['mu_v_u'] = np.zeros((n, n_buses), dtype='float32')
         targets['mu_v_d'] = np.zeros((n, n_buses), dtype='float32')
         targets['mu_sm_fr'] = np.zeros((n, n_br), dtype='float32')
         targets['mu_sm_to'] = np.zeros((n, n_br), dtype='float32')
         return targets
 
-    targets['lambda_p'] = np.hstack([
+    targets['lambda_p'] = -np.hstack([
         duals['lambda_kcl_r'][indices],
         duals['lambda_kcl_i'][indices],
     ]).astype('float32')
 
-    # The G branch predicts non-slack Pg and all Qg, so its bound duals are sliced
-    # to match that layout
+    # JuMP upper-bound duals are nonpositive; Lagrangian inequality multipliers are positive.
     targets['mu_g_u'] = np.hstack([
-        duals['mu_pg_max'][indices][:, non_slack_gen_idx],
-        duals['mu_qg_max'][indices],
+        -duals['mu_pg_max'][indices],
+        -duals['mu_qg_max'][indices],
     ]).astype('float32')
     targets['mu_g_d'] = np.hstack([
-        duals['mu_pg_min'][indices][:, non_slack_gen_idx],
+        duals['mu_pg_min'][indices],
         duals['mu_qg_min'][indices],
     ]).astype('float32')
 
-    targets['mu_v_u'] = duals['mu_vm_max'][indices].astype('float32')
+    targets['mu_v_u'] = -duals['mu_vm_max'][indices].astype('float32')
     targets['mu_v_d'] = duals['mu_vm_min'][indices].astype('float32')
-    targets['mu_sm_fr'] = duals['mu_sm_fr'][indices].astype('float32')
-    targets['mu_sm_to'] = duals['mu_sm_to'][indices].astype('float32')
+    targets['mu_sm_fr'] = -duals['mu_sm_fr'][indices].astype('float32')
+    targets['mu_sm_to'] = -duals['mu_sm_to'][indices].astype('float32')
 
     return targets
 

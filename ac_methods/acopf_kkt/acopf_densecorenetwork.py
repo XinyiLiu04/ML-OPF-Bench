@@ -2,9 +2,9 @@
 """Three-branch dense core network for the KKT-informed PINN.
 
 All three branches take the same input D = [pd, qd] and are otherwise independent:
-  G  -> [Pg_non_slack, Qg_all]
+  G  -> [Pg_all, Qg_all]
   V  -> [Vr, Vi] over all buses, i.e. rectangular voltage
-  Lm -> every dual variable of the ACOPF
+  Lm -> balance, bounds, thermal, angle and reference multipliers
 """
 
 import torch
@@ -46,7 +46,7 @@ class DenseCoreNetwork(nn.Module):
         self.n_branches = n_branches
 
         self.g_hidden, g_last = _build_hidden_layers(input_dim, neurons_G)
-        self.g_output = _build_output_layer(g_last, n_gen_non_slack + n_gen)
+        self.g_output = _build_output_layer(g_last, 2 * n_gen)
 
         self.v_hidden, v_last = _build_hidden_layers(input_dim, neurons_V)
         self.v_output = _build_output_layer(v_last, 2 * n_buses)
@@ -59,7 +59,7 @@ class DenseCoreNetwork(nn.Module):
 
         self.lg_hidden, lg_last = _build_hidden_layers(input_dim, neurons_Lg)
 
-        n_dual_g = n_gen_non_slack + n_gen
+        n_dual_g = 2 * n_gen
         self.lg_lambda_p = _build_output_layer(lg_last, 2 * n_buses)
         self.lg_mu_g_u = _build_output_layer(lg_last, n_dual_g)
         self.lg_mu_g_d = _build_output_layer(lg_last, n_dual_g)
@@ -67,6 +67,9 @@ class DenseCoreNetwork(nn.Module):
         self.lg_mu_v_d = _build_output_layer(lg_last, n_buses)
         self.lg_mu_sm_fr = _build_output_layer(lg_last, n_branches)
         self.lg_mu_sm_to = _build_output_layer(lg_last, n_branches)
+        self.lg_mu_ang_u = _build_output_layer(lg_last, n_branches)
+        self.lg_mu_ang_d = _build_output_layer(lg_last, n_branches)
+        self.lg_lambda_ref = _build_output_layer(lg_last, 1)
 
     def forward(self, x):
         """Return a dict with the primal predictions and every dual variable."""
@@ -84,4 +87,7 @@ class DenseCoreNetwork(nn.Module):
             'mu_v_d': self.lg_mu_v_d(lg_feat),
             'mu_sm_fr': self.lg_mu_sm_fr(lg_feat),
             'mu_sm_to': self.lg_mu_sm_to(lg_feat),
+            'mu_ang_u': self.lg_mu_ang_u(lg_feat),
+            'mu_ang_d': self.lg_mu_ang_d(lg_feat),
+            'lambda_ref': self.lg_lambda_ref(lg_feat),
         }

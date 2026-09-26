@@ -31,9 +31,9 @@ LOSS_KEYS = ('L_obj', 'L_g', 'L_Sl', 'L_theta', 'L_z', 'L_d')
 
 
 class DeepOPFNGT(nn.Module):
-    """Loads to voltage: ReLU hidden layers and a sigmoid output in (0, 1)."""
+    """Loads to voltage: bounded magnitudes and unbounded angle coordinates."""
 
-    def __init__(self, input_size, output_size, hidden_sizes=None):
+    def __init__(self, input_size, output_size, hidden_sizes=None, reference_position=0):
         super().__init__()
         if hidden_sizes is None:
             hidden_sizes = [256, 256]
@@ -43,28 +43,34 @@ class DeepOPFNGT(nn.Module):
         for h in hidden_sizes:
             layers += [nn.Linear(prev, h), nn.ReLU()]
             prev = h
-        layers += [nn.Linear(prev, output_size), nn.Sigmoid()]
+        layers += [nn.Linear(prev, output_size)]
         self.net = nn.Sequential(*layers)
+        self.reference_position = reference_position
 
     def forward(self, x):
-        return self.net(x)
+        y = self.net(x)
+        n = y.shape[1] // 2
+        angles = y[:, n:]
+        angles = angles - angles[:, self.reference_position:self.reference_position + 1]
+        return torch.cat((torch.sigmoid(y[:, :n]), angles), dim=1)
 
 
 class VoltageDenormaliser:
     """Maps the sigmoid output onto physical voltage at the non-ZIB buses, and back.
 
     Magnitudes are mapped linearly onto each bus's own [vm_min, vm_max], so the network
-    cannot violate a voltage bound at a predicted bus by construction. Angles are mapped
-    onto a symmetric window; the paper uses 30 degrees. Note the window bounds each bus
-    angle, not the branch angle difference, which can still reach twice the window and
-    is what the angle loss term penalizes.
+    cannot violate a voltage bound at a predicted bus by construction. Angles are unbounded radians and are shifted to the reference bus.
+    The legacy theta_max_deg argument is retained only for call compatibility.
     """
 
     def __init__(self, params, device, theta_max_deg=30.0):
         nonzib_indices = np.where(~np.asarray(params['general']['zib_mask'], dtype=bool))[0]
         self.nonzib_indices = nonzib_indices
         self.n_nonzib = len(nonzib_indices)
-        self.theta_max_rad = float(theta_max_deg) * np.pi / 180.0
+        slack = np.flatnonzero(np.asarray(params["general"]["bus_types"]) == 3)
+        if len(slack) != 1 or slack[0] not in nonzib_indices:
+            raise ValueError("NGT requires one predicted reference bus")
+        self.reference_position = int(np.flatnonzero(nonzib_indices == slack[0])[0])
 
         vm_min = np.asarray(params['bus']['vm_min'], dtype=np.float32)[nonzib_indices]
         vm_max = np.asarray(params['bus']['vm_max'], dtype=np.float32)[nonzib_indices]
@@ -81,18 +87,19 @@ class VoltageDenormaliser:
         """Return (v_alpha, theta_alpha) in p.u. and radians."""
         n = self.n_nonzib
         v_alpha = self.v_min + y_norm[:, :n] * (self.v_max - self.v_min)
-        theta_alpha = (y_norm[:, n:] - 0.5) * 2.0 * self.theta_max_rad
+        theta_alpha = y_norm[:, n:]
+        theta_alpha = theta_alpha - theta_alpha[:, self.reference_position:self.reference_position + 1]
         return v_alpha, theta_alpha
 
     def encode(self, vm_nonzib, va_nonzib):
-        """Inverse map, turning ground-truth voltage into a target in (0, 1).
+        """Encode magnitude fractions and reference-relative angle targets.
 
         Used by the semi-supervised variants when the supervised loss is taken in the
         normalized domain rather than the physical one.
         """
         v_scaled = ((vm_nonzib - self._v_min_np)
                     / (self._v_max_np - self._v_min_np + 1e-8))
-        theta_scaled = va_nonzib / (2.0 * self.theta_max_rad) + 0.5
+        theta_scaled = va_nonzib - va_nonzib[:, self.reference_position:self.reference_position + 1]
         return np.hstack([v_scaled, theta_scaled]).astype('float32')
 
 
@@ -102,7 +109,8 @@ class LossTerms:
     def __init__(self, params, pf_engine, device, theta_max_deg=30.0):
         self.device = device
         self.pf = pf_engine
-        self.theta_diff_max = float(theta_max_deg) * np.pi / 180.0
+        self.angmin = torch.as_tensor(params["branch"]["angmin_rad"], dtype=torch.float32, device=device)
+        self.angmax = torch.as_tensor(params["branch"]["angmax_rad"], dtype=torch.float32, device=device)
 
         def _t(a):
             return torch.tensor(np.asarray(a, dtype=np.float32), device=device)
@@ -159,11 +167,11 @@ class LossTerms:
         else:
             L_Sl = torch.zeros((), device=self.device)
 
-        # Eq. (7): branch angle differences. Each bus angle is already inside the
-        # denormalisation window, but a difference can reach twice that window.
+        # Eq. (7): independent branch angle bounds from the dataset.
         theta_diff = (theta_all[:, self.pf.f_idx] - theta_all[:, self.pf.t_idx])
         L_theta = torch.mean(torch.sum(
-            torch.relu(torch.abs(theta_diff) - self.theta_diff_max) ** 2, dim=1))
+            torch.where(self.angmin > -2*np.pi + 1e-6, torch.relu(self.angmin - theta_diff) ** 2, 0.)
+            + torch.where(self.angmax < 2*np.pi - 1e-6, torch.relu(theta_diff - self.angmax) ** 2, 0.), dim=1))
 
         # Eq. (8): voltage magnitude at the ZIBs. The predicted buses are inside their
         # bounds by construction, so only the solved buses can violate them.

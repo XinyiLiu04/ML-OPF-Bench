@@ -164,7 +164,7 @@ def train_extended_deepopf_ngt_smoothed(
     # ------------------------------------------------------------------
     # 4. Model
     # ------------------------------------------------------------------
-    model = DeepOPFNGT(2 * n_loads, denorm.output_dim, hidden_sizes).to(device)
+    model = DeepOPFNGT(2 * n_loads, denorm.output_dim, hidden_sizes, reference_position=denorm.reference_position).to(device)
     optimiser = optim.Adam(model.parameters(), lr=learning_rate)
     loss_terms = LossTermsClampedCost(params, pf_engine, device,
                                       theta_max_deg=theta_max_deg)

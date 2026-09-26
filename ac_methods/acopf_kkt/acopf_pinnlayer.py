@@ -1,304 +1,120 @@
-# -*- coding: utf-8 -*-
-"""PINN physics layer: wraps the core network and scores the KKT conditions.
-
-The KKT error sums, per sample: the angle reference, the power flow residual, primal
-violations of the generator, voltage and line limits, complementary slackness, dual
-feasibility, and stationarity with respect to the generation variables. Everything is
-computed in rectangular voltage coordinates, which keeps the power flow polynomial.
-"""
-
+"""Physical AC KKT residual in rectangular voltages and full generation."""
 import numpy as np
 import torch
-import torch.nn as nn
-
+from torch import nn
 from acopf_densecorenetwork import DenseCoreNetwork
 
 
 class PinnLayer(nn.Module):
-    """Core network plus the KKT residual it is penalized on."""
-
     def __init__(self, simulation_parameters, neurons_V, neurons_G, neurons_Lg):
         super().__init__()
+        p = simulation_parameters
+        g = p['general']
+        self.n_buses, self.n_gen = g['n_buses'], g['n_gen']
+        self.n_gen_non_slack, self.n_branches = g['n_gen_non_slack'], g['n_branches']
+        self.n_loads = g['n_loads']
+        lookup = g['bus_id_to_idx']
+        refs = np.flatnonzero(g['bus_types'] == 3)
+        if len(refs) != 1:
+            raise ValueError('Exactly one reference bus is required')
+        self.slack_bus_idx = int(refs[0])
+        def buf(name, value, integer=False):
+            self.register_buffer(name, torch.as_tensor(np.asarray(value), dtype=torch.long if integer else torch.float32))
+        buf('non_slack_gen_idx', g['non_slack_gen_idx'], True)
+        buf('gen_to_bus_idx', [lookup[int(b)] for b in g['gen_bus_ids']], True)
+        buf('load_to_bus_idx', [lookup[int(b)] for b in g['load_bus_ids']], True)
+        self.core_network = DenseCoreNetwork(2*self.n_loads, self.n_buses, self.n_gen,
+                                            self.n_gen_non_slack, self.n_branches,
+                                            neurons_V, neurons_G, neurons_Lg)
+        gen, bus, br = p['generator'], p['bus'], p['branch']
+        for key in ('pg_min', 'pg_max', 'qg_min', 'qg_max', 'cost_c1', 'cost_c2'):
+            buf(key, gen[key].flatten())
+        for key in ('vm_min', 'vm_max', 'gs', 'bs'):
+            buf(key, bus[key].flatten())
+        fi = np.array([lookup[int(b)] for b in br['f_bus']], dtype=int)
+        ti = np.array([lookup[int(b)] for b in br['t_bus']], dtype=int)
+        buf('f_idx', fi, True); buf('t_idx', ti, True)
+        for key in ('angmin_rad', 'angmax_rad'):
+            buf(key, br[key])
+        rate = np.asarray(br['rate_a'])
+        buf('rate_sq', np.where(np.isfinite(rate) & (rate > 0), rate**2, 0))
+        buf('rated', (np.isfinite(rate) & (rate > 0)).astype(float))
+        # MATPOWER pi model: charging at both ends; complex tap at from end.
+        series = 1 / (np.asarray(br['r_pu']) + 1j*np.asarray(br['x_pu']))
+        tap = np.where(np.asarray(br['tap_ratio']) == 0, 1, br['tap_ratio']) * np.exp(1j*np.asarray(br['shift_rad']))
+        charging = 1j*np.asarray(br['b_pu'])/2
+        yf = np.zeros((self.n_branches, self.n_buses), complex)
+        yt = np.zeros_like(yf)
+        idx = np.arange(self.n_branches)
+        yf[idx, fi] += (series+charging)/(abs(tap)**2)
+        yf[idx, ti] -= series/np.conj(tap)
+        yt[idx, fi] -= series/tap
+        yt[idx, ti] += series+charging
+        for name, a in [('yf', yf), ('yt', yt)]:
+            buf(name+'_r', a.real); buf(name+'_i', a.imag)
+        cg = np.zeros((self.n_buses, self.n_gen))
+        cg[[lookup[int(b)] for b in g['gen_bus_ids']], np.arange(self.n_gen)] = 1
+        buf('cg', cg)
 
-        gen = simulation_parameters['general']
-        self.n_buses = gen['n_buses']
-        self.n_gen = gen['n_gen']
-        self.n_gen_non_slack = gen['n_gen_non_slack']
-        self.n_branches = gen['n_branches']
-        self.n_loads = gen['n_loads']
-        self.BASE_MVA = gen['BASE_MVA']
-
-        bus_ids = gen['bus_ids']
-        bus_id_to_idx = gen['bus_id_to_idx']
-        gen_bus_ids = gen['gen_bus_ids']
-        load_bus_ids = gen['load_bus_ids']
-        non_slack_gen_idx = gen['non_slack_gen_idx']
-
-        slack_bus_ids = bus_ids[gen['bus_types'] == 3]
-        slack_bus_indices = [bus_id_to_idx[int(bid)] for bid in slack_bus_ids]
-        self.slack_bus_idx = slack_bus_indices[0] if slack_bus_indices else 0
-
-        self.register_buffer('load_to_bus_idx', torch.tensor(
-            [bus_id_to_idx[int(bid)] for bid in load_bus_ids], dtype=torch.long))
-        self.register_buffer('gen_to_bus_idx', torch.tensor(
-            [bus_id_to_idx[int(bid)] for bid in gen_bus_ids], dtype=torch.long))
-        self.register_buffer('non_slack_gen_idx', torch.tensor(
-            non_slack_gen_idx, dtype=torch.long))
-
-        self.core_network = DenseCoreNetwork(
-            input_dim=2 * self.n_loads,
-            n_buses=self.n_buses,
-            n_gen=self.n_gen,
-            n_gen_non_slack=self.n_gen_non_slack,
-            n_branches=self.n_branches,
-            neurons_V=neurons_V,
-            neurons_G=neurons_G,
-            neurons_Lg=neurons_Lg,
-        )
-
-        pg_min_all = simulation_parameters['generator']['pg_min'].flatten()
-        pg_max_all = simulation_parameters['generator']['pg_max'].flatten()
-        qg_min_all = simulation_parameters['generator']['qg_min'].flatten()
-        qg_max_all = simulation_parameters['generator']['qg_max'].flatten()
-
-        self.register_buffer('pg_min_ns', torch.tensor(
-            pg_min_all[non_slack_gen_idx], dtype=torch.float32).unsqueeze(0))
-        self.register_buffer('pg_max_ns', torch.tensor(
-            pg_max_all[non_slack_gen_idx], dtype=torch.float32).unsqueeze(0))
-        self.register_buffer('qg_min', torch.tensor(
-            qg_min_all, dtype=torch.float32).unsqueeze(0))
-        self.register_buffer('qg_max', torch.tensor(
-            qg_max_all, dtype=torch.float32).unsqueeze(0))
-
-        # Voltage limits are stored squared, so they compare directly against
-        # Vr^2 + Vi^2 without taking a square root in the loss
-        vm_min = simulation_parameters['bus']['vm_min'].astype(np.float32)
-        vm_max = simulation_parameters['bus']['vm_max'].astype(np.float32)
-        self.register_buffer('vm_min_sq', torch.tensor(vm_min ** 2).unsqueeze(0))
-        self.register_buffer('vm_max_sq', torch.tensor(vm_max ** 2).unsqueeze(0))
-
-        # Stationarity uses only the linear cost term, and Qg carries no cost, so the
-        # gradient vector is [c1 over non-slack generators, zeros over Qg]
-        cost_c1 = simulation_parameters['generator']['cost_c1'].astype(np.float32)
-        cost_vec = np.concatenate([
-            cost_c1[non_slack_gen_idx],
-            np.zeros(self.n_gen, dtype=np.float32)
-        ])
-        self.register_buffer('cost_vec', torch.tensor(cost_vec).unsqueeze(0))
-
-        self._build_admittance_matrices(simulation_parameters, bus_id_to_idx)
-        self._build_mapping_matrices(simulation_parameters, bus_id_to_idx)
-
-    def _build_admittance_matrices(self, params, bus_id_to_idx):
-        """Build the bus admittance matrix and the branch current operator.
-
-        Both are stored as real blocks so they act on v = [Vr, Vi] directly. The bus
-        shunt admittance is folded into the diagonal, so a nodal injection computed
-        from Y already accounts for it.
-        """
+    def physical_terms(self, v, generation, inputs):
         n = self.n_buses
-        br = params['branch']
-        f_bus = br['f_bus']
-        t_bus = br['t_bus']
-        r_pu = br['r_pu'].astype(np.float64)
-        x_pu = br['x_pu'].astype(np.float64)
-        b_pu = br['b_pu'].astype(np.float64)
-        tap_ratio = br['tap_ratio'].astype(np.float64)
-        shift_rad = br['shift_rad'].astype(np.float64)
-        rate_a = br['rate_a'].astype(np.float64)
-        n_br = len(f_bus)
+        vr, vi = v[:, :n], v[:, n:]
+        pg, qg = generation[:, :self.n_gen], generation[:, self.n_gen:]
+        vm = torch.sqrt(vr.square()+vi.square()+1e-16)
+        def flows(yr, yi, indices):
+            ir, ii = vr@yr.T-vi@yi.T, vr@yi.T+vi@yr.T
+            return vr[:, indices]*ir+vi[:, indices]*ii, vi[:, indices]*ir-vr[:, indices]*ii
+        pf,qf = flows(self.yf_r,self.yf_i,self.f_idx)
+        pt,qt = flows(self.yt_r,self.yt_i,self.t_idx)
+        pinj,qinj = vr.new_zeros(vr.shape), vr.new_zeros(vr.shape)
+        for indices,power,reactive in [(self.f_idx,pf,qf),(self.t_idx,pt,qt)]:
+            pinj = pinj.index_add(1,indices,power)
+            qinj = qinj.index_add(1,indices,reactive)
+        pd = vr.new_zeros(vr.shape).index_add(1,self.load_to_bus_idx,inputs[:,:self.n_loads])
+        qd = vr.new_zeros(vr.shape).index_add(1,self.load_to_bus_idx,inputs[:,self.n_loads:])
+        # Net branch export plus shunts equals generation minus demand.
+        balance = torch.cat((pinj+self.gs*vm.square()-pg@self.cg.T+pd,
+                             qinj-self.bs*vm.square()-qg@self.cg.T+qd),dim=1)
+        angle = torch.atan2(vi,vr)
+        delta = angle[:,self.f_idx]-angle[:,self.t_idx]
+        inequalities = {
+            'mu_g_u': torch.cat((pg-self.pg_max,qg-self.qg_max),dim=1),
+            'mu_g_d': torch.cat((self.pg_min-pg,self.qg_min-qg),dim=1),
+            'mu_v_u': vm-self.vm_max, 'mu_v_d': self.vm_min-vm,
+            'mu_sm_fr': (pf.square()+qf.square()-self.rate_sq)*self.rated,
+            'mu_sm_to': (pt.square()+qt.square()-self.rate_sq)*self.rated,
+            'mu_ang_u': torch.where(self.angmax_rad < 2*np.pi-1e-6,delta-self.angmax_rad,torch.zeros_like(delta)),
+            'mu_ang_d': torch.where(self.angmin_rad > -2*np.pi+1e-6,self.angmin_rad-delta,torch.zeros_like(delta)),
+        }
+        cost = (self.cost_c2*pg.square()+self.cost_c1*pg).sum(1)
+        return balance, inequalities, cost
 
-        Y = np.zeros((n, n), dtype=np.complex128)
-        ybr_diag = np.zeros(n_br, dtype=np.complex128)
-        IM_complex = np.zeros((n_br, n), dtype=np.complex128)
-
-        for k in range(n_br):
-            i = bus_id_to_idx[int(f_bus[k])]
-            j = bus_id_to_idx[int(t_bus[k])]
-
-            z = complex(r_pu[k], x_pu[k])
-            y_series = 1.0 / z if abs(z) > 1e-10 else 0.0
-            y_shunt = complex(0, b_pu[k])
-
-            tap = tap_ratio[k] if tap_ratio[k] != 0 else 1.0
-            tap_c = tap * np.exp(1j * shift_rad[k])
-
-            Y[i, i] += y_series / (tap * np.conj(tap_c)) + y_shunt / 2.0
-            Y[j, j] += y_series + y_shunt / 2.0
-            Y[i, j] -= y_series / np.conj(tap_c)
-            Y[j, i] -= y_series / tap_c
-
-            ybr_diag[k] = y_series / tap_c
-            IM_complex[k, i] = 1.0
-            IM_complex[k, j] = -1.0
-
-        gs = params['bus']['gs'].astype(np.float64)
-        bs = params['bus']['bs'].astype(np.float64)
-        for i in range(n):
-            Y[i, i] += complex(gs[i], bs[i])
-
-        self.register_buffer('bus_gs', torch.tensor(
-            gs, dtype=torch.float32).unsqueeze(0))
-        self.register_buffer('bus_bs', torch.tensor(
-            bs, dtype=torch.float32).unsqueeze(0))
-
-        self.register_buffer('Y_real', torch.tensor(Y.real, dtype=torch.float32))
-        self.register_buffer('Y_imag', torch.tensor(Y.imag, dtype=torch.float32))
-
-        # Branch current: I = Ybr @ IM @ v, with each complex operator written as the
-        # real block [[re, -im], [im, re]] so the product stays a real matmul
-        Ybr_block = np.block([
-            [np.diag(ybr_diag.real), -np.diag(ybr_diag.imag)],
-            [np.diag(ybr_diag.imag), np.diag(ybr_diag.real)],
-        ])
-        IM_block = np.block([
-            [IM_complex.real, -IM_complex.imag],
-            [IM_complex.imag, IM_complex.real],
-        ])
-        self.register_buffer('Ybr_IM', torch.tensor(
-            Ybr_block @ IM_block, dtype=torch.float32))
-
-        # Branches without a usable rating get an unreachable limit and are masked
-        # out of the loss, matching the 9900 sentinel used elsewhere
-        line_limit_sq = np.full(n_br, 1e10, dtype=np.float32)
-        has_limit = np.zeros(n_br, dtype=bool)
-        for k in range(n_br):
-            if np.isfinite(rate_a[k]) and rate_a[k] > 0:
-                line_limit_sq[k] = rate_a[k] ** 2
-                has_limit[k] = True
-
-        self.register_buffer('line_limit_sq', torch.tensor(line_limit_sq).unsqueeze(0))
-        self.register_buffer('branch_has_limit', torch.tensor(
-            has_limit.astype(np.float32)).unsqueeze(0))
-
-    def _build_mapping_matrices(self, params, bus_id_to_idx):
-        """Build the generator-to-bus incidence matrices used by the power balance.
-
-        Map_g is the block form used by stationarity: the P rows only see non-slack Pg
-        and the Q rows only see Qg, because slack Pg is not a decision variable here.
-        """
-        n = self.n_buses
-        gen_bus_ids = params['general']['gen_bus_ids']
-        non_slack_gen_idx = params['general']['non_slack_gen_idx']
-
-        Map_g_P = np.zeros((n, self.n_gen_non_slack), dtype=np.float32)
-        for col_idx, gen_global_idx in enumerate(non_slack_gen_idx):
-            Map_g_P[bus_id_to_idx[int(gen_bus_ids[gen_global_idx])], col_idx] += 1.0
-
-        Map_g_Q = np.zeros((n, self.n_gen), dtype=np.float32)
-        for gen_local_idx in range(self.n_gen):
-            Map_g_Q[bus_id_to_idx[int(gen_bus_ids[gen_local_idx])], gen_local_idx] += 1.0
-
-        Map_g_full = np.zeros((2 * n, self.n_gen_non_slack + self.n_gen), dtype=np.float32)
-        Map_g_full[:n, :self.n_gen_non_slack] = Map_g_P
-        Map_g_full[n:, self.n_gen_non_slack:] = Map_g_Q
-
-        self.register_buffer('Map_g', torch.tensor(Map_g_full))
-        self.register_buffer('Map_g_P', torch.tensor(Map_g_P))
-        self.register_buffer('Map_g_Q', torch.tensor(Map_g_Q))
-
-    def compute_kkt_error(self, v_rect, pg_qg, inputs, lambda_p,
-                          mu_g_u, mu_g_d, mu_v_u, mu_v_d, mu_sm_fr, mu_sm_to):
-        """Return the summed KKT residual per sample, shape (batch,)."""
-        batch = v_rect.shape[0]
-        n = self.n_buses
-        n_br = self.n_branches
-
-        Vr = v_rect[:, :n]
-        Vi = v_rect[:, n:]
-        pg_ns = pg_qg[:, :self.n_gen_non_slack]
-        qg = pg_qg[:, self.n_gen_non_slack:]
-
-        kkt_error = torch.zeros(batch, device=v_rect.device)
-
-        # Angle reference: the slack bus must have zero imaginary voltage
-        kkt_error = kkt_error + torch.abs(Vi[:, self.slack_bus_idx])
-
-        # Power flow residual from S = V * conj(Y @ V), expanded into real terms
-        YrVr = torch.matmul(Vr, self.Y_real.t())
-        YiVi = torch.matmul(Vi, self.Y_imag.t())
-        YiVr = torch.matmul(Vr, self.Y_imag.t())
-        YrVi = torch.matmul(Vi, self.Y_real.t())
-
-        P_calc = Vr * (YrVr - YiVi) + Vi * (YiVr + YrVi)
-        Q_calc = Vi * (YrVr - YiVi) - Vr * (YiVr + YrVi)
-
-        P_gen = torch.matmul(pg_ns, self.Map_g_P.t())
-        Q_gen = torch.matmul(qg, self.Map_g_Q.t())
-
-        pd = inputs[:, :self.n_loads]
-        qd = inputs[:, self.n_loads:]
-        P_load = torch.zeros(batch, n, device=v_rect.device)
-        Q_load = torch.zeros(batch, n, device=v_rect.device)
-        load_idx = self.load_to_bus_idx.unsqueeze(0).expand(batch, -1)
-        P_load.scatter_add_(1, load_idx, pd)
-        Q_load.scatter_add_(1, load_idx, qd)
-
-        Vm_sq_bal = Vr ** 2 + Vi ** 2
-        P_shunt = self.bus_gs * Vm_sq_bal
-        Q_shunt = -self.bus_bs * Vm_sq_bal
-
-        kkt_error = kkt_error + torch.sum(
-            torch.abs(P_calc - (P_gen - P_load - P_shunt)), dim=1)
-        kkt_error = kkt_error + torch.sum(
-            torch.abs(Q_calc - (Q_gen - Q_load - Q_shunt)), dim=1)
-
-        # Primal violations of the generator limits
-        kkt_error = kkt_error + torch.sum(torch.relu(pg_ns - self.pg_max_ns), dim=1)
-        kkt_error = kkt_error + torch.sum(torch.relu(self.pg_min_ns - pg_ns), dim=1)
-        kkt_error = kkt_error + torch.sum(torch.relu(qg - self.qg_max), dim=1)
-        kkt_error = kkt_error + torch.sum(torch.relu(self.qg_min - qg), dim=1)
-
-        # Primal violations of the voltage limits
-        Vm_sq = Vr ** 2 + Vi ** 2
-        kkt_error = kkt_error + torch.sum(torch.relu(Vm_sq - self.vm_max_sq), dim=1)
-        kkt_error = kkt_error + torch.sum(torch.relu(self.vm_min_sq - Vm_sq), dim=1)
-
-        # Primal violations of the line current limits
-        Ibr = torch.matmul(v_rect, self.Ybr_IM.t())
-        Ibr_sq = Ibr[:, :n_br] ** 2 + Ibr[:, n_br:] ** 2
-        line_slack = Ibr_sq - self.line_limit_sq
-        kkt_error = kkt_error + torch.sum(
-            torch.relu(line_slack) * self.branch_has_limit, dim=1)
-
-        # Complementary slackness on every inequality
-        gen_max = torch.cat([self.pg_max_ns, self.qg_max], dim=1)
-        gen_min = torch.cat([self.pg_min_ns, self.qg_min], dim=1)
-        kkt_error = kkt_error + torch.sum(
-            torch.abs(mu_g_u * (pg_qg - gen_max))
-            + torch.abs(mu_g_d * (gen_min - pg_qg)), dim=1)
-        kkt_error = kkt_error + torch.sum(
-            torch.abs(mu_v_u * (Vm_sq - self.vm_max_sq))
-            + torch.abs(mu_v_d * (self.vm_min_sq - Vm_sq)), dim=1)
-        kkt_error = kkt_error + torch.sum(
-            (torch.abs(mu_sm_fr * line_slack) + torch.abs(mu_sm_to * line_slack))
-            * self.branch_has_limit, dim=1)
-
-        # Dual feasibility: every inequality multiplier must be non-negative
-        for mu in (mu_g_u, mu_g_d, mu_v_u, mu_v_d, mu_sm_fr, mu_sm_to):
-            kkt_error = kkt_error + torch.sum(torch.relu(-mu), dim=1)
-
-        # Stationarity with respect to the generation variables
-        lambda_mapped = torch.matmul(lambda_p, self.Map_g)
-        kkt_error = kkt_error + torch.sum(
-            torch.abs(self.cost_vec - lambda_mapped + mu_g_u - mu_g_d), dim=1)
-
-        return kkt_error
+    def residual_components(self, outputs, inputs):
+        training_graph = torch.is_grad_enabled()
+        with torch.enable_grad():
+            v, gen = outputs['v_rect'], outputs['pg_qg']
+            if not v.requires_grad:
+                v = v.detach().requires_grad_(True)
+            if not gen.requires_grad:
+                gen = gen.detach().requires_grad_(True)
+            balance, constraints, cost = self.physical_terms(v,gen,inputs)
+            ref = v[:,self.n_buses+self.slack_bus_idx]
+            lagrangian = cost+(outputs['lambda_p']*balance).sum(1)+outputs['lambda_ref'].flatten()*ref
+            primal = balance.abs().sum(1)+ref.abs()
+            complementarity = torch.zeros_like(cost)
+            dual_feasibility = torch.zeros_like(cost)
+            for name,c in constraints.items():
+                mu = outputs[name]
+                lagrangian = lagrangian+(mu*c).sum(1)
+                primal = primal+c.relu().sum(1)
+                complementarity = complementarity+(mu*c).abs().sum(1)
+                dual_feasibility = dual_feasibility+(-mu).relu().sum(1)
+            dv,dg = torch.autograd.grad(lagrangian.sum(),(v,gen),create_graph=training_graph)
+            result = {'primal':primal,'stationarity':dv.abs().sum(1)+dg.abs().sum(1),
+                      'complementarity':complementarity,'dual_feasibility':dual_feasibility}
+        return result if training_graph else {k:a.detach() for k,a in result.items()}
 
     def forward(self, inputs):
-        """Predict, then attach the KKT residual under the 'kkt_error' key."""
         outputs = self.core_network(inputs)
-
-        outputs['kkt_error'] = self.compute_kkt_error(
-            v_rect=outputs['v_rect'],
-            pg_qg=outputs['pg_qg'],
-            inputs=inputs,
-            lambda_p=outputs['lambda_p'],
-            mu_g_u=outputs['mu_g_u'],
-            mu_g_d=outputs['mu_g_d'],
-            mu_v_u=outputs['mu_v_u'],
-            mu_v_d=outputs['mu_v_d'],
-            mu_sm_fr=outputs['mu_sm_fr'],
-            mu_sm_to=outputs['mu_sm_to'],
-        )
+        outputs['kkt_error'] = sum(self.residual_components(outputs,inputs).values())
         return outputs

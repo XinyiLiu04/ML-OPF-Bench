@@ -19,6 +19,7 @@ def main():
     p.add_argument('--root',type=Path,required=True)
     p.add_argument('--plan',type=Path,required=True)
     p.add_argument('--reserve-pid',type=int,action='append',default=[])
+    p.add_argument('--slots',type=int,default=3,choices=range(1,5))
     a=p.parse_args()
     plan=json.loads(a.plan.read_text())
     tasks=list(plan['tasks']);active={}
@@ -41,7 +42,7 @@ def main():
                 assert (child.returncode==0 and len(done)==1 and not failed) or known,task
                 print(json.dumps({'action':'finish','run_id':task['run_id'],'returncode':child.returncode}),flush=True)
                 del active[pid]
-            while tasks and len(active)+sum(alive(pid) for pid in a.reserve_pid)<3:
+            while tasks and len(active)+sum(alive(pid) for pid in a.reserve_pid)<a.slots:
                 task=tasks.pop(0)
                 output=a.root/task['output']
                 assert not list((output/task['run_id']).glob('*/manifest.json')),task['run_id']
@@ -52,7 +53,7 @@ def main():
                      '--data-root',str(a.root/'data'),'--output-root',str(output)]
                 child=subprocess.Popen(cmd,cwd=snapshot,env=current_env)
                 active[child.pid]=(child,task)
-                print(json.dumps({'action':'start','pid':child.pid,'task':task,'host':os.uname().nodename,'max_concurrency':3}),flush=True)
+                print(json.dumps({'action':'start','pid':child.pid,'task':task,'host':os.uname().nodename,'max_concurrency':a.slots}),flush=True)
             time.sleep(10)
         print('CORRECTION_QUEUE_FINISHED',flush=True)
 

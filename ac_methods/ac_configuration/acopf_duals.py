@@ -57,3 +57,50 @@ def load_dual_by_ids(duals_dir, case_name, suffix, target_ids):
 
     ordered = [df.columns[id_to_col[int(i)]] for i in target_ids]
     return df[ordered].values.astype(np.float32)
+
+
+def load_thermal_duals(duals_dir, case_name, params):
+    """Correct the legacy export's positional thermal labels; preserve JuMP signs."""
+    import hashlib
+    import json
+    from pathlib import Path
+    mapping_bytes = Path(__file__).with_name('thermal_dual_order.json').read_bytes()
+    if hashlib.sha256(mapping_bytes).hexdigest() != 'bdca6b264305f6fff1357d4646528ed06057c37bdf3a7bb9d2575276e2532738':
+        raise ValueError('Thermal mapping manifest hash mismatch')
+    mapping = json.loads(mapping_bytes)[case_name]
+    ids = params['general']['branch_ids']
+    positions = {int(b): i for i, b in enumerate(ids)}
+    br = params['branch']
+    limited = sorted(int(b) for b, r in zip(ids, br['rate_a']) if np.isfinite(r) and r > 0)
+    names = ('mu_sm_fr', 'mu_sm_to')
+    source = []
+    for name in names:
+        path = Path(duals_dir) / f'{case_name}_{name}.csv'
+        with path.open('rb') as stream:
+            digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+        if digest != mapping['sha256'][name]:
+            raise ValueError(f'Unaudited thermal dual file: {path}')
+        source.append(load_dual_by_ids(duals_dir, case_name, name, ids))
+    if source[0].shape != source[1].shape:
+        raise ValueError('Thermal dual shapes differ')
+    arcs = mapping['constraint_arcs']
+    if len(arcs) != 2 * len(limited):
+        raise ValueError('Thermal mapping and rated branches disagree')
+    result = [np.zeros_like(a) for a in source]
+    seen = set()
+    for j, (bid, f, t) in enumerate(arcs):
+        col = positions[bid]
+        ends = (int(br['f_bus'][col]), int(br['t_bus'][col]))
+        if (f, t) == ends:
+            end = 0
+        elif (t, f) == ends:
+            end = 1
+        else:
+            raise ValueError('Thermal mapping topology mismatch')
+        if (bid, end) in seen:
+            raise ValueError('Duplicate thermal mapping')
+        seen.add((bid, end))
+        result[end][:, col] = source[j % 2][:, positions[limited[j // 2]]]
+    if seen != {(b, e) for b in limited for e in (0, 1)}:
+        raise ValueError('Incomplete thermal mapping')
+    return dict(zip(names, result))

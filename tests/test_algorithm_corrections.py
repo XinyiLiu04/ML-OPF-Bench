@@ -128,3 +128,43 @@ def test_ngt_true_voltage_preserves_shunts_and_fixed_loads():
         torch.testing.assert_close(result['Qd_pred'],result['Qd_demanded'],atol=3e-3,rtol=1e-4)
         torch.testing.assert_close(result['Pg'],t(frames['pg'].to_numpy()),atol=3e-3,rtol=1e-4)
         torch.testing.assert_close(result['Qg'],t(frames['qg'].to_numpy()),atol=3e-3,rtol=1e-4)
+
+
+def test_direct_branch_metric_matches_pypower_both_ends():
+    from ac_configuration.acopf_branch import direct_branch_relative_violation
+    from ac_configuration.acopf_data_setup import load_parameters_from_csv
+    from ac_configuration.acopf_pypower import load_case_from_csv
+    from ml_opf_bench.config import dataset_paths
+    from pypower.ext2int import ext2int
+    from pypower.makeYbus import makeYbus
+    rng = np.random.default_rng(42)
+    for case, scenario in [('case30','base'),('case118','base'),('case300','base'),('case118','heavier_loads')]:
+        paths = dataset_paths(ROOT,'ac',case,scenario)
+        params = load_parameters_from_csv(paths.case_name,paths.params_path)
+        pp = ext2int(load_case_from_csv(paths.case_name,paths.params_path))
+        _, yf, yt = makeYbus(pp['baseMVA'],pp['bus'],pp['branch'])
+        n = len(pp['bus'])
+        vm = rng.uniform(.85,1.15,(5,n)); va = rng.uniform(-.5,.5,(5,n))
+        v = vm*np.exp(1j*va)
+        sf = v[:,pp['branch'][:,0].astype(int)]*np.conj((yf@v.T).T)
+        st = v[:,pp['branch'][:,1].astype(int)]*np.conj((yt@v.T).T)
+        rate = pp['branch'][:,5]/pp['baseMVA']
+        expected = np.maximum(0,np.maximum(abs(sf),abs(st))/rate-1).max(1)
+        np.testing.assert_allclose(direct_branch_relative_violation(vm,va,params),expected,rtol=2e-6,atol=2e-6)
+
+
+def test_thermal_loader_preserves_values_and_corrects_columns():
+    import json
+    from ac_configuration.acopf_duals import load_thermal_duals, load_dual_by_ids
+    from ac_configuration.acopf_data_setup import load_parameters_from_csv
+    from ml_opf_bench.config import dataset_paths
+    mappings=json.loads((ROOT/'ac_methods/ac_configuration/thermal_dual_order.json').read_text())
+    for case,scenario in [('case30','base'),('case118','base'),('case300','base'),('case118','heavier_loads')]:
+        paths=dataset_paths(ROOT,'ac',case,scenario)
+        params=load_parameters_from_csv(paths.case_name,paths.params_path)
+        fixed=load_thermal_duals(paths.duals_path,paths.case_name,params)
+        ids=params['general']['branch_ids']; pos={int(b):i for i,b in enumerate(ids)}
+        old=[load_dual_by_ids(paths.duals_path,paths.case_name,k,ids) for k in ('mu_sm_fr','mu_sm_to')]
+        for j,(bid,f,t) in enumerate(mappings[paths.case_name]['constraint_arcs']):
+            end='mu_sm_fr' if f==params['branch']['f_bus'][pos[bid]] else 'mu_sm_to'
+            np.testing.assert_array_equal(fixed[end][:,pos[bid]],old[j%2][:,pos[sorted(pos)[j//2]]])

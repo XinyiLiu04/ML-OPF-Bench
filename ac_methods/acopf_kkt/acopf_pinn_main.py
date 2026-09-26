@@ -27,7 +27,7 @@ try:
         prepare_data_splits,
         reconstruct_full_pg,
     )
-    from ac_configuration.acopf_duals import load_dual_by_ids, load_dual_sorted
+    from ac_configuration.acopf_duals import load_dual_by_ids, load_dual_sorted, load_thermal_duals
     from ac_configuration.acopf_evaluation_metrics import (
         compute_mae_absolute,
         compute_mae_percentage,
@@ -59,8 +59,7 @@ def load_dual_variables(duals_dir, case_name, params, n_samples):
     for key in ('mu_vm_min', 'mu_vm_max', 'lambda_kcl_r', 'lambda_kcl_i'):
         duals[key] = load_dual_by_ids(duals_dir, case_name, key, bus_ids)[:n_samples]
 
-    for key in ('mu_sm_fr', 'mu_sm_to'):
-        duals[key] = load_dual_by_ids(duals_dir, case_name, key, branch_ids)[:n_samples]
+    duals.update({k: v[:n_samples] for k, v in load_thermal_duals(duals_dir, case_name, params).items()})
 
     print(f"  Dual variables loaded from: {duals_dir}")
     for k, v in duals.items():
@@ -134,6 +133,7 @@ def compute_direct_metrics(pg_ns_np, vm_all_np, va_all_np, qg_all_np,
                            pf_results_list, converge_flags, params, gen_bus_indices):
     """Metrics taken straight from the network output, with no power flow involved.
 
+    Branch violation is dimensionless relative overload (1.0 means 100%).
     These are the paper's Table 3 numbers. The only exceptions are slack Pg and the
     cost gap, which the network does not predict and which therefore must come from
     the power flow even here.
@@ -168,30 +168,8 @@ def compute_direct_metrics(pg_ns_np, vm_all_np, va_all_np, qg_all_np,
                 slack_viols.append(
                     viols[slack_gen_idx[0]] / params['general']['BASE_MVA'])
 
-    # Branch flow from the predicted voltages via the pi-model, in power form
-    f_idx = np.array([bus_id_to_idx[int(b)] for b in params['branch']['f_bus']])
-    t_idx = np.array([bus_id_to_idx[int(b)] for b in params['branch']['t_bus']])
-
-    r_pu = params['branch']['r_pu'].astype(np.float64)
-    x_pu = params['branch']['x_pu'].astype(np.float64)
-    z_sq = np.maximum(r_pu ** 2 + x_pu ** 2, 1e-20)
-    g_br = (r_pu / z_sq).astype(np.float32)
-    b_br = (-x_pu / z_sq).astype(np.float32)
-
-    # Unrated branches use the same threshold as the evaluation module, and NaN
-    # ratings must be caught explicitly or every violation becomes NaN
-    rate_a = params['branch']['rate_a'].astype(np.float64).copy()
-    unlimited = ~np.isfinite(rate_a) | (rate_a <= 0)
-    rate_a[unlimited] = np.inf
-
-    vi = vm_all_np[:, f_idx]
-    vj = vm_all_np[:, t_idx]
-    theta_ij = va_all_np[:, f_idx] - va_all_np[:, t_idx]
-    pf_flow = g_br * vi ** 2 - vi * vj * (b_br * np.sin(theta_ij)
-                                          + g_br * np.cos(theta_ij))
-    qf_flow = -b_br * vi ** 2 - vi * vj * (g_br * np.sin(theta_ij)
-                                           - b_br * np.cos(theta_ij))
-    branch_viol = np.maximum(0, pf_flow ** 2 + qf_flow ** 2 - rate_a ** 2)
+    from ac_configuration.acopf_branch import direct_branch_relative_violation
+    branch_viol = direct_branch_relative_violation(vm_all_np, va_all_np, params)
 
     return {
         'direct_mae_pg_percent': compute_mae_percentage(
@@ -205,7 +183,7 @@ def compute_direct_metrics(pg_ns_np, vm_all_np, va_all_np, qg_all_np,
         'direct_pg_slack_viol_pu': float(np.mean(slack_viols)) if slack_viols else 0.0,
         'direct_qg_viol_pu': float(np.mean(np.max(qg_viol, axis=1))),
         'direct_vm_viol_pu': float(np.mean(np.max(vm_viol, axis=1))),
-        'direct_branch_viol_pu': float(np.mean(np.max(branch_viol, axis=1))),
+        'direct_branch_viol_pu': float(np.mean(branch_viol)),
     }
 
 

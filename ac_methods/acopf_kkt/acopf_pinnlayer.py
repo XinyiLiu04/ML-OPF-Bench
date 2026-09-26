@@ -40,16 +40,15 @@ class PinnLayer(nn.Module):
         buf('rate_sq', np.where(np.isfinite(rate) & (rate > 0), rate**2, 0))
         buf('rated', (np.isfinite(rate) & (rate > 0)).astype(float))
         # MATPOWER pi model: charging at both ends; complex tap at from end.
-        series = 1 / (np.asarray(br['r_pu']) + 1j*np.asarray(br['x_pu']))
-        tap = np.where(np.asarray(br['tap_ratio']) == 0, 1, br['tap_ratio']) * np.exp(1j*np.asarray(br['shift_rad']))
-        charging = 1j*np.asarray(br['b_pu'])/2
+        from ac_configuration.acopf_branch import branch_coefficients
+        yff, yft, ytf, ytt = branch_coefficients(br)
         yf = np.zeros((self.n_branches, self.n_buses), complex)
         yt = np.zeros_like(yf)
         idx = np.arange(self.n_branches)
-        yf[idx, fi] += (series+charging)/(abs(tap)**2)
-        yf[idx, ti] -= series/np.conj(tap)
-        yt[idx, fi] -= series/tap
-        yt[idx, ti] += series+charging
+        yf[idx, fi] += yff
+        yf[idx, ti] += yft
+        yt[idx, fi] += ytf
+        yt[idx, ti] += ytt
         for name, a in [('yf', yf), ('yt', yt)]:
             buf(name+'_r', a.real); buf(name+'_i', a.imag)
         cg = np.zeros((self.n_buses, self.n_gen))

@@ -39,8 +39,17 @@ def implementation_root(form):
     return Path(next(iter(spec.submodule_search_locations)))
 
 
-def load_method(form, method):
+def load_method(form, method, variant="modified"):
     filename, function, defaults = (AC if form == "ac" else DC)[method]
+    if variant == "paper":
+        if form != "ac" or method not in ("NGT", "E-NGT"):
+            raise ValueError("Unsupported paper variant")
+        filename, function = {
+            "NGT": ("acopf_ngt/paper_unsupervised_acopf.py", "train_deepopf_ngt"),
+            "E-NGT": ("acopf_ngt/paper_semi_supervised_acopf.py", "train_extended_deepopf_ngt"),
+        }[method]
+    elif variant != "modified":
+        raise ValueError(variant)
     root = implementation_root(form)
     path = root / filename
     for folder in (root, path.parent):
@@ -57,7 +66,7 @@ def load_method(form, method):
 
 
 def training_call(experiment, paths):
-    module, function, options = load_method(experiment.formulation, experiment.method)
+    module, function, options = load_method(experiment.formulation, experiment.method, experiment.variant)
     settings = experiment.training_parameters()
     if experiment.method == "MU":
         settings["early_stop_patience"] = settings["n_epochs"] + 1

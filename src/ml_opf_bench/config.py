@@ -62,8 +62,13 @@ class Experiment:
     evaluate_shifts: bool = True
     eval_limit: int | None = None
     workers: int = 4
+    variant: str = "modified"
 
     def __post_init__(self):
+        if self.variant not in ("modified", "paper"):
+            raise ValueError(self.variant)
+        if self.variant == "paper" and (self.formulation != "ac" or self.method not in ("NGT", "E-NGT")):
+            raise ValueError("Paper variant is defined only for AC NGT/E-NGT")
         if self.formulation not in ("ac", "dc"):
             raise ValueError(self.formulation)
         if self.method not in (AC_METHODS if self.formulation == "ac" else DC_METHODS):
@@ -80,7 +85,8 @@ class Experiment:
     @property
     def run_id(self):
         size = f"-n{self.train_size}" if self.mode == "scaling" else ""
-        return f"{self.formulation}-{self.case}-{self.method.lower()}-{self.mode}{size}-seed{self.seed}"
+        variant = "-paper" if self.variant == "paper" else ""
+        return f"{self.formulation}-{self.case}-{self.method.lower()}-{self.mode}{size}-seed{self.seed}{variant}"
 
     def training_parameters(self):
         epochs = 1000

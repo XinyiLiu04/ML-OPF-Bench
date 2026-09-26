@@ -127,3 +127,20 @@ def test_reference_loads_accept_dataset_headers_and_reject_empty_inputs(tmp_path
     pd_path.write_text("irrelevant\n1\n")
     with pytest.raises(ValueError, match="No pd load columns"):
         ac_load_inputs(pd_path, qd_path)
+
+
+def test_paper_variants_have_distinct_identity_with_matched_budget():
+    from ml_opf_bench.config import Experiment, dataset_paths
+    from ml_opf_bench.registry import training_call
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[1]
+    for case in ('case30','case118','case300'):
+        for method in ('NGT','E-NGT'):
+            modified=Experiment('ac',method,case=case)
+            paper=Experiment('ac',method,case=case,variant='paper')
+            assert paper.run_id==modified.run_id+'-paper'
+            assert paper.training_parameters()==modified.training_parameters()
+            paths=dataset_paths(root,'ac',case)
+            module,function,settings=training_call(paper,paths)
+            assert module.__name__.startswith('paper_')
+            assert settings==training_call(modified,paths)[2]

@@ -9,7 +9,7 @@ from .registry import load_method
 
 
 def evaluate_ac(spec, state, paths, indices=None):
-    module, _, _ = load_method("ac", spec.method)
+    module, _, _ = load_method("ac", spec.method, spec.variant)
     from ac_configuration.acopf_data_setup import load_parameters_from_csv, load_and_scale_acopf_data
     from ac_configuration.acopf_evaluation_metrics import evaluate_acopf_predictions
     from ac_configuration.acopf_pypower import load_case_from_csv, solve_pf_setpoints

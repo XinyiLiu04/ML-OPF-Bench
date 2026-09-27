@@ -41,6 +41,7 @@ from deepopf_ngt_common import (
     print_metrics_block,
     unweighted_total,
     weighted_total,
+    physical_load_penalty,
 )
 
 DEFAULT_INITIAL = {'k_g': 100.0, 'k_Sl': 10.0, 'k_theta': 100.0,
@@ -153,6 +154,7 @@ def train_deepopf_ngt_smoothed(
     print(f"Training Progress")
     print(f"{'=' * 70}")
 
+    print("Load penalty: physical dead-zone, tau=0.001 p.u.; raw losses retained for EMA diagnostics")
     n_train = len(X_train)
     n_batches = (n_train + batch_size - 1) // batch_size
     t0 = time.perf_counter()
@@ -172,9 +174,10 @@ def train_deepopf_ngt_smoothed(
             results = pf_engine(v_alpha, theta_alpha, Pd_train[idx], Qd_train[idx])
             loss_dict = loss_terms(results)
 
-            # The weights are applied to normalized losses, so they stay comparable
-            # across terms whose physical units differ by orders of magnitude
-            loss = weighted_total(scheduler.normalise(loss_dict), scheduler.coeffs)
+            # Only the optimized load term uses physical scaling.
+            normalized = scheduler.normalise(loss_dict)
+            normalized['L_d'] = physical_load_penalty(results)
+            loss = weighted_total(normalized, scheduler.coeffs)
 
             loss.backward()
             if grad_clip:
@@ -215,7 +218,7 @@ def train_deepopf_ngt_smoothed(
 
     train_time = time.perf_counter() - t0
     if is_managed():
-        return TrainingState(model, params, train_time, dict(scalers=scalers, denorm=denorm, theta_max_deg=theta_max_deg))
+        return TrainingState(model, params, train_time, dict(scalers=scalers, denorm=denorm, theta_max_deg=theta_max_deg, load_penalty='physical_deadzone_v1', load_tolerance_pu=1e-3))
     print(f"\nTraining completed in {train_time:.2f} seconds, "
           f"returning the final epoch's model")
 

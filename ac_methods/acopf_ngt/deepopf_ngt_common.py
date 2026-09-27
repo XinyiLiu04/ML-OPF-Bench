@@ -246,6 +246,16 @@ def update_coefficients_eq12(coeffs, loss_vals, k_upper):
         coeffs[name] = float(min(new_k, k_upper[name]))
 
 
+def physical_load_penalty(results, tolerance_pu=1e-3):
+    """Mean squared load-bus P/Q excess beyond the physical tolerance."""
+    if tolerance_pu <= 0:
+        raise ValueError("Load tolerance must be positive")
+    dp = results['Pd_pred'] - results['Pd_demanded']
+    dq = results['Qd_pred'] - results['Qd_demanded']
+    return (torch.relu(dp.abs() / tolerance_pu - 1).square()
+            + torch.relu(dq.abs() / tolerance_pu - 1).square()).mean()
+
+
 def weighted_total(loss_dict, coeffs):
     """Paper Eq. (10): the weighted sum of the objective and constraint terms."""
     return (coeffs['k_obj'] * loss_dict['L_obj']

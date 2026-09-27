@@ -23,7 +23,10 @@ def audit(attempt, data_root, samples, atol, rtol, device="cpu"):
     if original.epochs is not None or original.eval_limit is not None:
         raise ValueError("This audit requires a formal experiment, not smoke output")
     spec = replace(original, device=device, eval_limit=samples)
-    load_method(spec.formulation, spec.method, spec.variant)
+    if getattr(spec, "variant", "modified") == "paper":
+        load_method(spec.formulation, spec.method, "paper")
+    else:
+        load_method(spec.formulation, spec.method)
     state = torch.load(attempt / "checkpoint.pt", map_location="cpu", weights_only=False)
     if spec.formulation == "ac":
         from ml_opf_bench.ac_evaluation import evaluate_ac as evaluate

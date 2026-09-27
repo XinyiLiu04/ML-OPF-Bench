@@ -35,3 +35,11 @@ No revised formal RL training has been launched by this audit. Reward choices an
 The first 32 saved validation samples (explicitly disjoint from test) were evaluated without training. On case30, policy, midpoint, and Pg-lower/Vm-midpoint controls all had 32 converged PF solves, but all displayed violations. Raw policy means were outside [0,1] for 0.7215909091 of entries. This is evidence of substantial clipping, not proof of its causal role. These validation observations must not be conflated with the previously inspected test samples.
 
 On case300, all three controls had zero converged PF solves among 32 validation samples. A simple midpoint initialization therefore does not resolve the failure on this diagnostic subset. The next revision must first establish a training-only feasible exploration/initialization strategy and record failure categories; changing only the penalty coefficient is not yet supported. Frozen evaluator input uses the same saved x scaler and action_to_setpoints mapping as the diagnostic. No revised training has started.
+
+## Validation PF initialization diagnosis
+
+The first 32 saved case300 validation samples were replayed with original frozen source and verified data signatures. Label non-slack Pg and generator Vm yielded 32/32 converged PF solves for each of CSV, flat, and label voltage initializations, with both 10 and 50 Newton iterations. Maximum recovered bus-Vm discrepancy from labels was 1.216716940533047e-07 p.u. Policy and physical-box midpoint setpoints yielded 0/32 for every corresponding initialization/iteration setting. Q-limit enforcement was disabled, as in the formal evaluator; tolerance was 1e-8.
+
+Thus these samples do not support blaming the default initial voltage or ten-iteration cap alone. The label control supports consistency of this bounded load/setpoint/PF path, not a full dataset correctness certificate. Newton failure does not establish mathematical infeasibility. Next protocol work should address coupled action feasibility and reward calibration rather than only increasing the iteration cap. Label warm starts here are diagnostic controls only and must not enter deployable inference or training. No revised training was launched.
+
+Evidence: `runs/corrections-v1/rl-pf-initialization-case300-v1.json`; tool: `reports/diagnose_rl_pf_initialization.py`.

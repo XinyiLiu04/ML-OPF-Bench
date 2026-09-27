@@ -27,7 +27,7 @@ def audit(attempt, data_root, samples, atol, rtol, device="cpu"):
         load_method(spec.formulation, spec.method, "paper")
     else:
         load_method(spec.formulation, spec.method)
-    state = torch.load(attempt / "checkpoint.pt", map_location="cpu", weights_only=False)
+    state = torch.load(attempt / "checkpoint.pt", map_location=device, weights_only=False)
     if spec.formulation == "ac":
         from ml_opf_bench.ac_evaluation import evaluate_ac as evaluate
     else:

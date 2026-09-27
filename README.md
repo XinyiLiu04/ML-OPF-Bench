@@ -32,9 +32,7 @@ ml-opf-bench plan --seed 42
 ml-opf-bench suite --seed 42 --output-root runs/benchmark
 ```
 
-Use `--help` for options and `--device cpu` without a GPU. Each run saves its configuration, data/source hashes, split, checkpoint, logs, and metrics. AC RL defaults to Pg-only DDPG; AC NGT/E-NGT default to the modified implementations.
-
-See [protocol notes](reports/manuscript_protocol_seed42.md) for evaluation details and [configuration](src/ml_opf_bench/config.py) for budgets. Final rerun tables and figures are pending completion and audit.
+Use `--help` for options and `--device cpu` without a GPU. Each run saves its configuration, data/source hashes, split, checkpoint, logs, and metrics.
 
 ## Repository layout
 

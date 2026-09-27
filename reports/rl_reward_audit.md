@@ -43,3 +43,13 @@ The first 32 saved case300 validation samples were replayed with original frozen
 Thus these samples do not support blaming the default initial voltage or ten-iteration cap alone. The label control supports consistency of this bounded load/setpoint/PF path, not a full dataset correctness certificate. Newton failure does not establish mathematical infeasibility. Next protocol work should address coupled action feasibility and reward calibration rather than only increasing the iteration cap. Label warm starts here are diagnostic controls only and must not enter deployable inference or training. No revised training was launched.
 
 Evidence: `runs/corrections-v1/rl-pf-initialization-case300-v1.json`; tool: `reports/diagnose_rl_pf_initialization.py`.
+
+## Label-free aggregate-dispatch diagnostic
+
+A bounded follow-up used the first 32 saved training loads and first 32 validation loads, disjoint from test. For every sample, total demand includes unchanged fixed bus loads. All-generator dispatch is pg_min + alpha*(pg_max-pg_min), with alpha chosen for total demand times (1+margin); only non-slack dispatch is sent to PF. Slack generation remains determined by PF. Margins 0 and 0.05 and CSV/midpoint generator voltages were compared. Neither OPF labels nor an optimization solver supply the actions.
+
+At zero margin, 25/32 training and 24/32 validation cases converged with either voltage setting. At 0.05 margin, both subsets converged 32/32 with either voltage setting. The CSV-voltage legacy violation sums averaged 43.94575016838418 (train) and 44.27831056814388 (validation); these mixed-unit sums are diagnostic only, not feasibility metrics. Constraints are still violated. The assumed five-percent margin is not measured losses or an established optimum. This bounded observation supports investigating demand-aware action initialization, not a feasibility guarantee or performance claim.
+
+Next gate before revised training: test bounded perturbations around the aggregate-dispatch center on training loads, report Pg/Qg/Vm/thermal/angle components separately, and predeclare the action map and bounded reward. Any demand-aware map is a new RL variant and must be used identically in training, checkpoint reload and evaluation. Preserve the original independently bounded PPO baseline. No revised training has started.
+
+Evidence: `runs/corrections-v1/rl-balanced-case300-v1.json`; script: `reports/diagnose_rl_balanced_dispatch.py`.

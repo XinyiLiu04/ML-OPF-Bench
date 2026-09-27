@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from dataclasses import replace
-from ml_opf_bench.config import paper_experiments
+from ml_opf_bench.config import paper_experiments, Experiment
 
 
 KEYS = {
@@ -33,6 +33,7 @@ def read(path):
 
 
 SOURCES = {
+    "rl": ("paper-seed42-rl-5f2e191", "853109cd9c550fc6ae5a2cdfd92e9b00ecff2544450bbce85c5a574fa0c45c71"),
     "original": ("paper-seed42-2c1d52c", "39caf5accb8e14f0ae2ae179955629ce16e50491db439714d42930542ca5c0c0"),
     "dc_kkt": ("paper-seed42-correction-a824a10", "6956a7091fef4522a39060ff3f17d9f59104fa152fb199cad783d79e429a01f2"),
     "ac_kkt": ("paper-seed42-kkt-43b8584", "be0e5c8b1e6dee8c68a0bdfbd1c816b0076c2e1cfa9d7ae0292948d362440e68"),
@@ -43,6 +44,8 @@ SOURCES = {
 
 
 def source_key(spec):
+    if spec.method == "RL":
+        return "rl"
     if spec.variant == "paper":
         return "paper"
     if spec.method == "KKT":
@@ -58,7 +61,10 @@ def collect(root, source_sha, seed):
     rows = []
     missing = []
     specs = list(paper_experiments(seed))
+    if source_sha is not None:
+        specs = [replace(spec, variant="modified") if spec.method == "RL" else spec for spec in specs]
     if source_sha is None:
+        specs += [Experiment("dc", "RL", case, seed=seed) for case in ("case30", "case118", "case300")]
         specs += [replace(spec, variant="paper") for spec in specs
                   if spec.formulation == "ac" and spec.method in ("NGT", "E-NGT")
                   and spec.mode == "cross-system"]
@@ -109,6 +115,7 @@ def collect(root, source_sha, seed):
         for scenario in scenarios:
             for method, metrics in read(attempt / f"{scenario}.json").items():
                 normalized = {key: metrics[value] for key, value in KEYS[spec.formulation].items()}
+                normalized["feasibility"] = metrics.get("feasible_rate_percent")
                 normalized.update({key: metrics[key] for key in ("inference_ms", "train_time_s")})
                 normalized["viol_total"] = sum(normalized[k] for k in normalized if k.startswith("viol_")) \
                     if all(normalized[k] is not None for k in normalized if k.startswith("viol_")) else None

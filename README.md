@@ -19,20 +19,11 @@ hf download xinyi-liu/ML-OPF-Bench --repo-type dataset --local-dir ./ML-OPF-Benc
 export ML_OPF_BENCH_DATA="$PWD/ML-OPF-Bench-data"
 ```
 
-The data root contains `ac_dataset/` and `dc_dataset/`. Existing OPF labels are provided; regeneration is unnecessary.
-
 ## Reproducing the benchmark
 
 ```bash
 # Run one method (118-bus runs also evaluate distribution shifts).
 ml-opf-bench run --formulation ac --method DNN --case case118 --seed 42
-
-# Inspect and run the standard experiment suite.
-ml-opf-bench plan --seed 42
-ml-opf-bench suite --seed 42 --output-root runs/benchmark
-```
-
-Use `--help` for options and `--device cpu` without a GPU. Each run saves its configuration, data/source hashes, split, checkpoint, logs, and metrics.
 
 ## Repository layout
 

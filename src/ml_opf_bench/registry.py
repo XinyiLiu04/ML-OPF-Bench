@@ -41,7 +41,11 @@ def implementation_root(form):
 
 def load_method(form, method, variant="modified"):
     filename, function, defaults = (AC if form == "ac" else DC)[method]
-    if variant == "paper":
+    if variant == "ddpg-pgonly":
+        if form != "ac" or method != "RL":
+            raise ValueError("DDPG Pg-only is only defined for AC RL")
+        filename, function = "acopf_rl/acopf_ddpg_pgonly.py", "acopf_ddpg_pgonly_experiment"
+    elif variant == "paper":
         if form != "ac" or method not in ("NGT", "E-NGT"):
             raise ValueError("Unsupported paper variant")
         filename, function = {

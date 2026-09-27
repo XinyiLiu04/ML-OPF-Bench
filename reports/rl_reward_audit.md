@@ -53,3 +53,11 @@ At zero margin, 25/32 training and 24/32 validation cases converged with either 
 Next gate before revised training: test bounded perturbations around the aggregate-dispatch center on training loads, report Pg/Qg/Vm/thermal/angle components separately, and predeclare the action map and bounded reward. Any demand-aware map is a new RL variant and must be used identically in training, checkpoint reload and evaluation. Preserve the original independently bounded PPO baseline. No revised training has started.
 
 Evidence: `runs/corrections-v1/rl-balanced-case300-v1.json`; script: `reports/diagnose_rl_balanced_dispatch.py`.
+
+## Approved DDPG Pg-only implementation
+
+The user rejected demand-matched dispatch and generation margins. Those controls remain diagnostic history only and are not part of the implemented method. New variant `ddpg-pgonly` controls only physical-bound non-slack Pg. Generator voltages are fixed to `gen_data.csv:vg_pu`; the evaluator reads each scenario's network CSV. Slack Pg and Qg are determined by AC PF, without an auxiliary optimization solver or label-based action initialization.
+
+Implementation: `ac_methods/acopf_rl/acopf_ddpg_pgonly.py`, selected via `--method RL --variant ddpg-pgonly`. Run IDs and checkpoints are separate from original PPO. Default explicit budget is 2,000,000 steps; DDPG uses single-step gamma=0, Gaussian noise std0.1, replay capacity1,000,000, and benchmark network widths/batches. These are project adaptations, not an exact reproduction of the reference paper's hyperparameters. The inherited Summation penalty, validation reward selection, and exception handling remain pending the separately discussed reward audit; the calibration now rejects fewer than32 converged probes. No formal revised experiment is launched by this implementation.
+
+Tests check physical-bound action mapping, fixed Vm independence from actions, one-step environment behavior, separate run IDs, and a small DDPG update followed by serialized policy reload equality. These software tests do not establish AC-OPF feasibility or training convergence.

@@ -30,7 +30,7 @@ def main():
     run = commands.add_parser("run")
     run.add_argument("--formulation", choices=("ac", "dc"), required=True)
     run.add_argument("--method", required=True)
-    run.add_argument("--variant", choices=("modified", "paper"), default="modified")
+    run.add_argument("--variant", choices=("modified", "paper", "ddpg-pgonly"), default="modified")
     run.add_argument("--case", default="case118")
     run.add_argument("--mode", choices=("cross-system", "scaling"), default="cross-system")
     run.add_argument("--train-size", type=int)

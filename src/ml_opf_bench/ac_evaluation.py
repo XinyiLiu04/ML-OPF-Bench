@@ -33,6 +33,9 @@ def evaluate_ac(spec, state, paths, indices=None):
     if spec.method not in ("LR", "RL"):
         model.eval()
     case = load_case_from_csv(paths.case_name, str(paths.params_path))
+    action_bounds = artifacts.get("bounds")
+    if spec.variant == "ddpg-pgonly":
+        action_bounds = module.make_action_bounds(params, case)
     module.GLOBAL_CASE_DATA = case
     valid_input = np.ones(len(X), dtype=bool)
     if spec.method == "GNN":
@@ -58,7 +61,7 @@ def evaluate_ac(spec, state, paths, indices=None):
             return model.predict(scalers["x"].transform(raw["x"][rows]))
         if spec.method == "RL":
             actions, _ = model.predict(scalers["x"].transform(raw["x"][rows]), deterministic=True)
-            pairs = [module.action_to_setpoints(a, artifacts["bounds"]) for a in actions]
+            pairs = [module.action_to_setpoints(a, action_bounds) for a in actions]
             return np.stack([p[0] for p in pairs]), np.stack([p[1] for p in pairs])
         values = raw["x"][rows] if spec.method == "KKT" else scalers["x"].transform(raw["x"][rows])
         inputs = torch.as_tensor(values, device=device, dtype=torch.float32)

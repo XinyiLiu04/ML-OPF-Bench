@@ -65,8 +65,10 @@ class Experiment:
     variant: str = "modified"
 
     def __post_init__(self):
-        if self.variant not in ("modified", "paper"):
+        if self.variant not in ("modified", "paper", "ddpg-pgonly"):
             raise ValueError(self.variant)
+        if self.variant == "ddpg-pgonly" and (self.formulation != "ac" or self.method != "RL"):
+            raise ValueError("DDPG Pg-only is only defined for AC RL")
         if self.variant == "paper" and (self.formulation != "ac" or self.method not in ("NGT", "E-NGT")):
             raise ValueError("Paper variant is defined only for AC NGT/E-NGT")
         if self.formulation not in ("ac", "dc"):
@@ -85,7 +87,7 @@ class Experiment:
     @property
     def run_id(self):
         size = f"-n{self.train_size}" if self.mode == "scaling" else ""
-        variant = "-paper" if self.variant == "paper" else ""
+        variant = "" if self.variant == "modified" else f"-{self.variant}"
         return f"{self.formulation}-{self.case}-{self.method.lower()}-{self.mode}{size}-seed{self.seed}{variant}"
 
     def training_parameters(self):

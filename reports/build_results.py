@@ -64,7 +64,6 @@ def collect(root, source_sha, seed):
     if source_sha is not None:
         specs = [replace(spec, variant="modified") if spec.method == "RL" else spec for spec in specs]
     if source_sha is None:
-        specs += [Experiment("dc", "RL", case, seed=seed) for case in ("case30", "case118", "case300")]
         specs += [replace(spec, variant="paper") for spec in specs
                   if spec.formulation == "ac" and spec.method in ("NGT", "E-NGT")
                   and spec.mode == "cross-system"]

@@ -110,7 +110,7 @@ def paper_experiments(seed=42, device="cuda"):
     for form, methods in (("ac", AC_METHODS), ("dc", DC_METHODS)):
         for case in WIDTHS[form]:
             for method in methods:
-                if method in ("FR", "QP") or (form == "dc" and method == "RL"):
+                if method in ("FR", "QP"):
                     continue  # The CP run records both the raw and repaired dispatch.
                 yield Experiment(form, method, case, seed=seed, device=device,
                                  variant="ddpg-pgonly" if form == "ac" and method == "RL" else "modified")

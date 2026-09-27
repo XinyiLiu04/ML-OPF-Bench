@@ -76,4 +76,4 @@ def rl_experiment(case_name,params_path,data_path,n_train_use=12000,seed=42,
     start=time.perf_counter();model.learn(total_timesteps=total_timesteps,callback=callback)
     return TrainingState(model.policy,params,time.perf_counter()-start,
         dict(x_scaler=scaler,algorithm='DDPG',action_mode='pg_only',total_timesteps=model.num_timesteps,
-             cost_scale=env.cost_scale,reward='bounded_summation_v1',experimental=True))
+             cost_scale=env.cost_scale,reward='bounded_summation_v1'))

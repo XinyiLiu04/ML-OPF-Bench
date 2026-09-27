@@ -30,9 +30,6 @@ ml-opf-bench run --formulation ac --method DNN --case case118 --seed 42
 # Inspect and run the standard experiment suite.
 ml-opf-bench plan --seed 42
 ml-opf-bench suite --seed 42 --output-root runs/benchmark
-
-# DC RL is available as a separate experiment.
-ml-opf-bench run --formulation dc --method RL --case case118 --seed 42
 ```
 
 Use `--help` for options and `--device cpu` without a GPU. Each run saves its configuration, data/source hashes, split, checkpoint, logs, and metrics. AC RL defaults to Pg-only DDPG; AC NGT/E-NGT default to the modified implementations.

@@ -1,0 +1,31 @@
+# RL reward and protocol audit
+
+The running seed42 baseline remains unchanged. This audit does not establish that any proposed replacement will work better. Test results are descriptive evidence, not a tuning objective.
+
+## Confirmed implementation findings
+
+- Managed runs use physical action bounds and one-step episodes. Each reset samples a training load; each action sets non-slack Pg and generator-bus Vm, runs PF, receives reward, and terminates.
+- The formal budget is 10,000,000 environment steps, derived from 10,000 training samples and 1,000 configuration epochs. PPO internally uses three update epochs. These are different quantities; the inherited budget is not evidence of an appropriate compute budget.
+- Summation reward averages separately standardized negative cost and negative summed violations with weight 0.5. Its `valid` argument does not alter either term. Consequently feasibility is not prioritized by construction.
+- Penalty includes Pg, Qg, Vm, and both-end apparent-power thermal overloads. It omits branch angle-difference constraints. It sums heterogeneous categories and system-size-dependent counts.
+- Random-action normalization uses only converged probes. Case300 logged one converged probe out of 500; both empirical standard deviations are replaced by 1. This is a degenerate calibration, not a reliable scale estimate. The fixed nonconvergence reward -10 is not guaranteed to be below all converged rewards because standardized rewards are unbounded.
+- Validation stopping monitors only mean reward, patience20, min_delta1e-6. A small improvement resets patience. The best-reward policy is restored, not necessarily the best-feasibility policy.
+- PF exceptions are collapsed into the same nonconvergence reward, obscuring numerical failure versus implementation exceptions.
+- Standalone main messages about ignored early stopping/final-policy retention are stale; managed behavior uses the validation callback. Standalone action-bound default differs from managed physical bounds.
+
+## Existing evidence and limits
+
+Case300 stopped at 258049 steps after validation reward stayed -10 for 20 checks. Its saved test PF convergence is zero. Case30 stopped at 761857 steps; saved PF convergence is 100%, but dispatch errors and violations are substantial. Neither result establishes OPF feasibility. Case118 remained running when inspected; validation reward improvements alone do not establish a valid dispatch. CPU utilization indicates active execution, not algorithmic progress toward feasibility.
+
+Clipped Gaussian PPO actions on a [0,1] box may concentrate at boundaries; quantify this from saved policies and validation loads before attributing failure to clipping. Existing checkpoints omit reward calibration parameters and validation histories as structured artifacts; textual logs remain available.
+
+## Proposed separately versioned revision
+
+1. Keep physical bounds, original splits, seed42, and one-step definition. Preserve all original attempts.
+2. Expose separate Pg/Qg/Vm/thermal/angle violation components and PF failure categories. Declare tolerances and scaling explicitly; do not silently mix units into a feasibility certificate.
+3. Reject inadequate reward calibration rather than substitute unit scales. Prefer fixed, interpretable scales determined from training constraints and predeclared training-only diagnostics.
+4. Use validation feasibility/violation together with cost for checkpoint selection, with a documented ordering. Record PF convergence separately from full feasibility.
+5. Declare an explicit bounded step budget and validation schedule before a revised formal run; select them from training/validation diagnostics, not test outcomes. Do not claim equal epochs imply equal compute.
+6. Record calibration, learning curves, actual steps, wall time, action boundary fractions, and validation component metrics. Treat action parameterization changes as an explicit variant.
+
+No revised formal RL training has been launched by this audit. Reward choices and budget still require validation-only diagnostics before fixing the revised protocol.

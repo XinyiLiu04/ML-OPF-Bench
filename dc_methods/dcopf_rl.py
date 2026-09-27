@@ -1,4 +1,4 @@
-"""Experimental single-step DDPG baseline for the exported DC/PTDF model."""
+"""Single-step DDPG baseline for the exported DC/PTDF model."""
 import time
 import numpy as np
 import gymnasium as gym
@@ -7,7 +7,7 @@ from sklearn.preprocessing import StandardScaler
 from stable_baselines3 import DDPG
 from stable_baselines3.common.noise import NormalActionNoise
 from ml_opf_bench.runtime import TrainingState
-from ml_opf_bench.rl_training import ValidationRewardStopping
+from ml_opf_bench.dc_rl_validation import FeasibilityStopping
 from dc_configuration.dcopf_data_setup import load_parameters_from_csv, load_samples, prepare_data_splits, reconstruct_full_pg
 from dc_configuration.dcopf_evaluation_metrics import violations, compute_cost
 
@@ -18,6 +18,28 @@ def action_to_pg(action, params):
     if action.shape[-1]!=len(ns) or not np.isfinite(action).all():
         raise ValueError('Invalid non-slack Pg action')
     return c['pg_min'][ns]+np.clip(action,0,1)*(c['pg_max'][ns]-c['pg_min'][ns])
+
+
+def dispatch_reward(v, cost, constraints, cost_scale):
+    """Physical feasibility gate; normalized worst and average constraint excess."""
+    c = constraints
+    pg_scale = np.maximum(np.maximum(np.abs(c['pg_min']), np.abs(c['pg_max'])), 1.0)
+    thermal = v['branch'] / c['rate_a'][c['constrained_branches']]
+    raw = dict(pg_up=v['gen_up'], pg_lo=v['gen_lo'],
+               thermal_relative=thermal, balance=v['balance'])
+    maxima = {k: float(a.max()) if a.size else 0.0 for k, a in raw.items()}
+    feasible = all(value <= 1e-5 for value in maxima.values())
+    normalized = (v['gen_up']/pg_scale, v['gen_lo']/pg_scale, thermal,
+                  v['balance']/pg_scale.sum())
+    penalty = sum(float(a.max()+a.mean()) for a in normalized if a.size)
+    # Strictly interior even when tanh saturates in floating point.
+    cost_term = float(np.clip(0.5*(1+np.tanh(cost/cost_scale)),
+                              np.finfo(float).eps, 1-np.finfo(float).eps))
+    reward = -cost_term if feasible else -1.0-penalty
+    if not np.isfinite(reward):
+        raise FloatingPointError('Nonfinite DC reward')
+    return reward, dict(feasible=feasible, violations=maxima, cost=cost,
+                        normalized_violation=penalty, normalized_cost=cost_term)
 
 
 class DcEnv(gym.Env):
@@ -43,15 +65,8 @@ class DcEnv(gym.Env):
         pg=reconstruct_full_pg(action_to_pg(action,self.params)[None,:],load,self.params)
         v=violations(pg,load,self.params)
         c=self.params['constraints']
-        parts=dict(pg=np.maximum(v['gen_up'],v['gen_lo']),
-                   thermal_relative=v['branch']/c['rate_a'][c['constrained_branches']],
-                   balance=v['balance'])
-        means={k:float(a.mean()) if a.size else 0. for k,a in parts.items()}
-        maxima={k:float(a.max()) if a.size else 0. for k,a in parts.items()}
-        penalty=sum(means.values());cost=float(compute_cost(pg,self.params)[0])
-        reward=-0.5*(1+np.tanh(cost/self.cost_scale))-penalty/(1+penalty)
-        if not np.isfinite(reward):raise FloatingPointError('Nonfinite DC reward')
-        info=dict(feasible=all(v<=1e-5 for v in maxima.values()),violations=maxima,cost=cost)
+        reward, info = dispatch_reward(v, float(compute_cost(pg,self.params)[0]),
+                                       c, self.cost_scale)
         return self.x_scaled[self._current_idx],float(reward),True,False,info
 
 
@@ -72,8 +87,10 @@ def rl_experiment(case_name,params_path,data_path,n_train_use=12000,seed=42,
         train_freq=(1,'step'),gradient_steps=1,
         action_noise=NormalActionNoise(np.zeros(n),0.1*np.ones(n)),
         policy_kwargs=dict(net_arch=hidden_sizes or [256,128]),device=device,seed=seed)
-    callback=ValidationRewardStopping(val_env,10000,early_stop_patience,early_stop_min_delta)
+    callback=FeasibilityStopping(val_env,10000,early_stop_patience,early_stop_min_delta)
     start=time.perf_counter();model.learn(total_timesteps=total_timesteps,callback=callback)
     return TrainingState(model.policy,params,time.perf_counter()-start,
         dict(x_scaler=scaler,algorithm='DDPG',action_mode='pg_only',total_timesteps=model.num_timesteps,
-             cost_scale=env.cost_scale,reward='bounded_summation_v1'))
+             cost_scale=env.cost_scale,reward='feasibility_first_v2',
+             selection='feasible_count_then_violation_then_feasible_cost',
+             best_step=callback.best_step,validation_history=callback.history))

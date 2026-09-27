@@ -5,6 +5,7 @@ Single-step physical-bound variant. A bounded Summation reward uses physical sca
 """
 
 from ml_opf_bench.runtime import TrainingState, is_managed
+from pgonly_data import load_and_scale_acopf_data
 from pgonly_reward import BoundedSummation, constraint_components, feasible, TOLERANCES
 
 import numpy as np
@@ -28,7 +29,6 @@ try:
     from ac_configuration import acopf_config
     from ac_configuration.acopf_data_setup import (
         load_parameters_from_csv,
-        load_and_scale_acopf_data,
         prepare_data_splits,
     )
     from ac_configuration.acopf_evaluation_metrics import evaluate_acopf_predictions
@@ -313,7 +313,7 @@ def acopf_ddpg_pgonly_experiment(
     print(f"  Vm range: [{bounds['vm_fixed'].min():.4f}, {bounds['vm_fixed'].max():.4f}] p.u.")
 
     # ------------------------------------------------------------------
-    # 4. Reward scaling, estimated from random actions
+    # 4. Fixed physical reward scales
     # ------------------------------------------------------------------
     reward_fn = BoundedSummation(params)
     norm_params = dict(cost_scale=reward_fn.cost_scale, tolerances=TOLERANCES,

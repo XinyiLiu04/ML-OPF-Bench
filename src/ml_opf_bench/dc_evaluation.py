@@ -12,7 +12,7 @@ from .registry import load_method
 def evaluate_dc(spec, state, paths, indices=None):
     module, _, _ = load_method("dc", spec.method)
     from dc_configuration.dcopf_data_setup import load_parameters_from_csv, load_samples, reconstruct_full_pg
-    from dc_configuration.dcopf_evaluation_metrics import evaluate_dispatch
+    from dc_configuration.dcopf_evaluation_metrics import evaluate_dispatch, violations
     from dc_configuration.dcopf_config import synchronize
 
     params = load_parameters_from_csv(paths.case_name, str(paths.params_path))
@@ -83,6 +83,15 @@ def evaluate_dc(spec, state, paths, indices=None):
             synchronize(device)
             elapsed.append(time.perf_counter() - start)
         metrics = evaluate_dispatch(predicted, pg_test, pd_test, params)
+        if spec.method == "RL":
+            v = violations(predicted, pd_test, params)
+            rates = params['constraints']['rate_a'][params['constraints']['constrained_branches']]
+            branch = v['branch']/rates
+            flags = ((v['gen_up'].max(axis=1) <= 1e-5) & (v['gen_lo'].max(axis=1) <= 1e-5)
+                     & (v['balance'] <= 1e-5))
+            if branch.shape[1]: flags &= branch.max(axis=1) <= 1e-5
+            arrays[f"{name}_feasible"] = flags
+            metrics.update(feasible_samples=int(flags.sum()),feasible_rate_percent=float(100*flags.mean()))
         metrics.update(train_time_s=state.train_time_s, inference_ms=float(np.mean(elapsed) * 1000),
                        inference_sample_indices=timing_indices.tolist(),
                        inference_scope="load preprocessing, model, reconstruction, and method postprocessing; batch=1",

@@ -14,6 +14,8 @@ def evaluate_ac(spec, state, paths, indices=None):
     from ac_configuration.acopf_evaluation_metrics import evaluate_acopf_predictions
     from ac_configuration.acopf_pypower import load_case_from_csv, solve_pf_setpoints
 
+    if spec.variant == "ddpg-pgonly":
+        load_and_scale_acopf_data = module.load_and_scale_acopf_data
     params = load_parameters_from_csv(paths.case_name, str(paths.params_path))
     artifacts = state.artifacts
     scalers = artifacts["scalers"]
@@ -141,6 +143,13 @@ def evaluate_ac(spec, state, paths, indices=None):
         metrics = evaluate_acopf_predictions(pg_all, vm_all, raw["pg"][idx], raw["vm"][idx],
                                              raw["qg"][idx], raw["va"][idx], solutions,
                                              converged, params, verbose=False)
+        if spec.variant == "ddpg-pgonly":
+            flags = np.array([bool(ok and module.feasible(module.constraint_components(result[0],general["BASE_MVA"])))
+                              for ok,result in zip(converged,solutions)])
+            arrays[f"{name}_feasible"] = flags
+            metrics["feasible_samples"] = int(flags.sum())
+            metrics["feasible_rate_percent"] = float(100*flags.mean())
+            metrics["feasibility_tolerances"] = module.TOLERANCES
         timings = []
         feature_deltas = []
         for row in idx[valid_input[idx]][:20]:

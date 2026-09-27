@@ -5,9 +5,11 @@ from stable_baselines3.common.callbacks import BaseCallback
 
 
 class FeasibilityStopping(BaseCallback):
-    def __init__(self, env, interval, patience, min_delta):
+    def __init__(self, env, interval, patience, min_delta, diagnostics=None, archive=None):
         super().__init__()
         self.env = env
+        self.diagnostics = diagnostics
+        self.archive = archive
         self.interval, self.patience, self.min_delta = interval, patience, min_delta
         self.next_check = interval
         self.best_key = None
@@ -50,6 +52,8 @@ class FeasibilityStopping(BaseCallback):
         record = dict(step=self.num_timesteps, feasible=count, samples=len(infos),
                       violation=violation, feasible_cost=cost,
                       reward=float(np.mean(rewards)), selected=selected)
+        if self.diagnostics is not None:
+            record["metrics"] = self.diagnostics(actions)
         self.history.append(record)
         print(record, flush=True)
         self.next_check = self.num_timesteps+self.interval
@@ -67,4 +71,6 @@ class FeasibilityStopping(BaseCallback):
     def _on_training_end(self):
         if not self.history or self.history[-1]['step'] != self.num_timesteps:
             self._evaluate()
+        if self.archive is not None:
+            self.archive(self.model, self)
         self.model.policy.load_state_dict(self.best_state)

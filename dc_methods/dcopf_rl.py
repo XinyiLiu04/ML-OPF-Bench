@@ -73,7 +73,8 @@ class DcEnv(gym.Env):
 def rl_experiment(case_name,params_path,data_path,n_train_use=12000,seed=42,
                   total_timesteps=2_000_000,hidden_sizes=None,batch_size=128,
                   learning_rate=3e-4,device='cpu',learning_starts=1024,
-                  early_stop_patience=20,early_stop_min_delta=1e-6,**unused):
+                  early_stop_patience=20,early_stop_min_delta=1e-6,
+                  validation_diagnostics=None,training_archive=None,**unused):
     if total_timesteps<=0:raise ValueError('Positive explicit budget required')
     params=load_parameters_from_csv(case_name,params_path)
     loads,_=load_samples(data_path,params)
@@ -87,7 +88,8 @@ def rl_experiment(case_name,params_path,data_path,n_train_use=12000,seed=42,
         train_freq=(1,'step'),gradient_steps=1,
         action_noise=NormalActionNoise(np.zeros(n),0.1*np.ones(n)),
         policy_kwargs=dict(net_arch=hidden_sizes or [256,128]),device=device,seed=seed)
-    callback=FeasibilityStopping(val_env,10000,early_stop_patience,early_stop_min_delta)
+    callback=FeasibilityStopping(val_env,10000,early_stop_patience,early_stop_min_delta,
+                                validation_diagnostics,training_archive)
     start=time.perf_counter();model.learn(total_timesteps=total_timesteps,callback=callback)
     return TrainingState(model.policy,params,time.perf_counter()-start,
         dict(x_scaler=scaler,algorithm='DDPG',action_mode='pg_only',total_timesteps=model.num_timesteps,

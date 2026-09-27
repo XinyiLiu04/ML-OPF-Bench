@@ -9,7 +9,7 @@ A shared training and evaluation pipeline for machine-learning methods for AC an
 ```bash
 git clone https://github.com/XinyiLiu04/ML-OPF-Bench.git
 cd ML-OPF-Bench
-python -m pip install -e ".[test,plots]"
+python -m pip install -e .
 ```
 
 ## Data
@@ -39,4 +39,3 @@ Use `--help` for options and `--device cpu` without a GPU. Each run saves its co
 - `ac_methods/`, `dc_methods/`: models and physical-system utilities.
 - `src/ml_opf_bench/`: experiment runner and evaluation pipeline.
 - `data_generalization/`: optional Julia dataset-generation notebooks.
-- `reports/`, `tests/`: result processing, audits, and checks.

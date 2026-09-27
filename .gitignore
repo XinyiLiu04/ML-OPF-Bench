@@ -13,14 +13,14 @@ dist/
 /runs/
 
 # datasets(upload to Hugging Face)
+/ML-OPF-Bench-data/
 ac_dataset/
 dc_dataset/
 
 # keys
 .env
 
-# DC-side RL is not part of the release
-/dc_methods/dcopf_rl.py
+# Legacy standalone DC reward module
 /dc_methods/reward.py
 
 /data_generalization/README.md
@@ -30,3 +30,12 @@ dc_dataset/
 /data_generalization/DCOPF Constraints with dual.ipynb
 /data_generalization/DCOPF Constraints.ipynb
 /data_generalization/DCOPF Dataset.ipynb
+
+# Local one-off cloud orchestration (retained outside the release)
+/reports/parallel_dc.py
+/reports/parallel_partition.py
+/reports/partition_queue.py
+/reports/third_host_bootstrap.py
+/reports/third_slot.py
+/reports/transfer_third_host.py
+/reports/west_bootstrap.py

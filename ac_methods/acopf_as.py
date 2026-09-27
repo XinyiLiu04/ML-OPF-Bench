@@ -568,11 +568,6 @@ def active_set_acopf_experiment(
     if cost_baseline:
         print(f"  Cost Baseline: {cost_baseline:.2f} $/h")
 
-    params['general']['vm_gen_mean'] = raw_data['vm_gen'].mean(axis=0).astype(np.float64)
-    print(f"  vm_gen_mean range: "
-          f"[{params['general']['vm_gen_mean'].min():.4f}, "
-          f"{params['general']['vm_gen_mean'].max():.4f}] p.u.")
-
     # ------------------------------------------------------------------
     # 3. Active sets from the dual variables
     # ------------------------------------------------------------------
@@ -598,6 +593,9 @@ def active_set_acopf_experiment(
         n_train_use=n_train_use,
         seed=seed
     )
+
+    params['general']['vm_gen_mean'] = raw_data['vm_gen'][train_idx].mean(axis=0, dtype=np.float64)
+    params['general']['vm_gen_mean_source'] = 'training_partition'
 
     as_to_label, label_to_as = build_label_space(active_matrix, train_idx, meta)
     labels_all = assign_labels(active_matrix, as_to_label)

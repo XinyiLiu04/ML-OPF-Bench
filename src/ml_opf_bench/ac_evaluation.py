@@ -23,6 +23,13 @@ def evaluate_ac(spec, state, paths, indices=None):
                                               fit_scalers=False, scalers=scalers)
     for key in ("bus_ids", "gen_bus_ids", "load_bus_ids", "non_slack_gen_idx"):
         np.testing.assert_array_equal(params["general"][key], state.params["general"][key])
+    if spec.method == "AS":
+        if state.params["general"].get("vm_gen_mean_source") != "training_partition":
+            raise ValueError("AS checkpoint lacks a training-only voltage mean; use the versioned legacy reevaluation")
+        nominal = np.asarray(state.params["general"]["vm_gen_mean"], dtype=np.float64)
+        if nominal.shape != (params["general"]["n_gen"],) or not np.isfinite(nominal).all():
+            raise ValueError("Invalid training-only AS voltage mean")
+        params["general"]["vm_gen_mean"] = nominal.copy()
     idx = np.arange(len(X)) if indices is None else np.asarray(indices)
     if spec.eval_limit is not None:
         idx = idx[:spec.eval_limit]

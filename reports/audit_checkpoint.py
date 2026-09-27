@@ -13,7 +13,7 @@ from ml_opf_bench.io import code_version, data_signature, write_json
 from ml_opf_bench.registry import load_method
 
 
-def audit(attempt, data_root, samples, atol, rtol):
+def audit(attempt, data_root, samples, atol, rtol, device="cpu"):
     manifest = json.loads((attempt / "manifest.json").read_text())
     if not (attempt / "completed.json").is_file():
         raise ValueError("Only completed formal attempts can be audited")
@@ -22,7 +22,7 @@ def audit(attempt, data_root, samples, atol, rtol):
     original = Experiment(**manifest["experiment"])
     if original.epochs is not None or original.eval_limit is not None:
         raise ValueError("This audit requires a formal experiment, not smoke output")
-    spec = replace(original, device="cpu", eval_limit=samples)
+    spec = replace(original, device=device, eval_limit=samples)
     load_method(spec.formulation, spec.method, spec.variant)
     state = torch.load(attempt / "checkpoint.pt", map_location="cpu", weights_only=False)
     if spec.formulation == "ac":
@@ -48,7 +48,7 @@ def audit(attempt, data_root, samples, atol, rtol):
                 if finite.any() else None
             results.append({"scenario": scenario, "array": key, "matches": matches, "max_abs_error": delta})
     return {"attempt": str(attempt), "source_sha256": manifest["code"]["source_sha256"],
-            "device": "cpu", "atol": atol, "rtol": rtol, "requested_samples": samples,
+            "device": device, "atol": atol, "rtol": rtol, "requested_samples": samples,
             "passed": all(r["matches"] for r in results), "comparisons": results}
 
 
@@ -60,8 +60,9 @@ def main():
     parser.add_argument("--samples", type=int, default=4)
     parser.add_argument("--atol", type=float, default=1e-5)
     parser.add_argument("--rtol", type=float, default=1e-4)
+    parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     args = parser.parse_args()
-    result = audit(args.attempt.resolve(), args.data_root.resolve(), args.samples, args.atol, args.rtol)
+    result = audit(args.attempt.resolve(), args.data_root.resolve(), args.samples, args.atol, args.rtol, args.device)
     write_json(args.output, result)
     print(json.dumps({"passed": result["passed"], "output": str(args.output)}))
     raise SystemExit(0 if result["passed"] else 1)

@@ -25,7 +25,7 @@ def evaluate_dc(spec, state, paths, indices=None):
     pd_test, pg_test = pd_all[idx], pg_all[idx]
     model, artifacts = state.model, state.artifacts
     device = torch.device(spec.device)
-    if spec.method != "LR":
+    if spec.method not in ("LR", "RL"):
         model.eval()
     if spec.method == "GNN":
         model = copy.deepcopy(model)
@@ -37,6 +37,9 @@ def evaluate_dc(spec, state, paths, indices=None):
         nonlocal as_failures
         if spec.method == "LR":
             pred_ns = model.predict(loads)
+        elif spec.method == "RL":
+            actions, _ = model.predict(artifacts["x_scaler"].transform(loads), deterministic=True)
+            pred_ns = module.action_to_pg(actions, params)
         else:
             X = torch.as_tensor(artifacts["x_scaler"].transform(loads), dtype=torch.float32, device=device)
             with torch.no_grad():

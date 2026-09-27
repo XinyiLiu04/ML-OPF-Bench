@@ -30,7 +30,7 @@ def main():
     run = commands.add_parser("run")
     run.add_argument("--formulation", choices=("ac", "dc"), required=True)
     run.add_argument("--method", required=True)
-    run.add_argument("--variant", choices=("modified", "paper", "ddpg-pgonly"), default="modified")
+    run.add_argument("--variant", choices=("modified", "paper", "ddpg-pgonly"), default=None)
     run.add_argument("--case", default="case118")
     run.add_argument("--mode", choices=("cross-system", "scaling"), default="cross-system")
     run.add_argument("--train-size", type=int)
@@ -59,7 +59,7 @@ def main():
     from .runner import run_experiment
     spec = Experiment(args.formulation, args.method.upper(), args.case, args.mode, args.seed,
                       args.train_size, args.pool_size, args.epochs, args.device, not args.no_shifts,
-                      args.eval_limit, args.workers, args.variant)
+                      args.eval_limit, args.workers, args.variant or ("ddpg-pgonly" if args.formulation == "ac" and args.method == "RL" else "modified"))
     print(run_experiment(spec, args.data_root, args.output_root))
 
 

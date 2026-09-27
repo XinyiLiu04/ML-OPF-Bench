@@ -5,7 +5,7 @@ from pathlib import Path
 import os
 
 AC_METHODS = ("LR", "DNN", "GNN", "MU", "CP", "FR", "KKT", "QC", "NGT", "E-NGT", "AS", "RL")
-DC_METHODS = ("LR", "DNN", "GNN", "MU", "CP", "QP", "KKT", "NGT", "E-NGT", "AS")
+DC_METHODS = ("RL", "LR", "DNN", "GNN", "MU", "CP", "QP", "KKT", "NGT", "E-NGT", "AS")
 SIZES = (1000, 5000, 12000, 20000, 30000, 35000)
 SCALING = {"ac": ("LR", "DNN", "MU", "QC", "KKT"), "dc": ("LR", "DNN", "MU", "QP", "KKT")}
 WIDTHS = {"ac": {"case30": (64, 32), "case118": (256, 128), "case300": (512, 256)},
@@ -110,9 +110,10 @@ def paper_experiments(seed=42, device="cuda"):
     for form, methods in (("ac", AC_METHODS), ("dc", DC_METHODS)):
         for case in WIDTHS[form]:
             for method in methods:
-                if method in ("FR", "QP"):
+                if method in ("FR", "QP") or (form == "dc" and method == "RL"):
                     continue  # The CP run records both the raw and repaired dispatch.
-                yield Experiment(form, method, case, seed=seed, device=device)
+                yield Experiment(form, method, case, seed=seed, device=device,
+                                 variant="ddpg-pgonly" if form == "ac" and method == "RL" else "modified")
         for method in SCALING[form]:
             for size in SIZES:
                 yield Experiment(form, method, mode="scaling", train_size=size, seed=seed,

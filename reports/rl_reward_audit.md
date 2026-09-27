@@ -29,3 +29,9 @@ Clipped Gaussian PPO actions on a [0,1] box may concentrate at boundaries; quant
 6. Record calibration, learning curves, actual steps, wall time, action boundary fractions, and validation component metrics. Treat action parameterization changes as an explicit variant.
 
 No revised formal RL training has been launched by this audit. Reward choices and budget still require validation-only diagnostics before fixing the revised protocol.
+
+## Bounded validation diagnostics
+
+The first 32 saved validation samples (explicitly disjoint from test) were evaluated without training. On case30, policy, midpoint, and Pg-lower/Vm-midpoint controls all had 32 converged PF solves, but all displayed violations. Raw policy means were outside [0,1] for 0.7215909091 of entries. This is evidence of substantial clipping, not proof of its causal role. These validation observations must not be conflated with the previously inspected test samples.
+
+On case300, all three controls had zero converged PF solves among 32 validation samples. A simple midpoint initialization therefore does not resolve the failure on this diagnostic subset. The next revision must first establish a training-only feasible exploration/initialization strategy and record failure categories; changing only the penalty coefficient is not yet supported. Frozen evaluator input uses the same saved x scaler and action_to_setpoints mapping as the diagnostic. No revised training has started.

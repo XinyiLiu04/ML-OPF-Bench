@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """DDPG with non-slack Pg actions and CSV-fixed generator voltage.
 
-Single-step physical-bound variant. The legacy Summation reward is retained;
-reward/constraint revisions are separate from this action-space implementation.
+Single-step physical-bound variant. A bounded Summation reward uses physical scales and separate constraint diagnostics.
 """
 
 from ml_opf_bench.runtime import TrainingState, is_managed
+from pgonly_reward import BoundedSummation, constraint_components, feasible, TOLERANCES
 
 import numpy as np
 import time
@@ -45,7 +45,7 @@ except ImportError:
 
 # A sample whose power flow diverges yields no cost and no violation to score, so it
 # gets a fixed reward well below the scaled range of a converged sample
-NON_CONVERGE_REWARD = -10.0
+NON_CONVERGE_REWARD = -3.0
 
 # Feasibility is decided with a tolerance rather than an exact comparison to zero,
 # since the violations are sums of clipped floating point differences
@@ -162,93 +162,20 @@ class AcopfEnv(gym.Env):
         pd_pu = self.x_raw[self._current_idx, :self.n_loads]
         qd_pu = self.x_raw[self._current_idx, self.n_loads:]
 
-        try:
-            r1_pf = solve_pf_setpoints(pd_pu, qd_pu, pg_non_slack, vm_gen,
-                                       self.params, self.case_data)
-            converged = bool(r1_pf[0]['success'])
-        except Exception:
-            converged = False
-
+        r1_pf = solve_pf_setpoints(pd_pu, qd_pu, pg_non_slack, vm_gen,
+                                  self.params, self.case_data)
+        converged = bool(r1_pf[0]['success'])
+        info = dict(pf_converged=converged, feasible=False)
         if converged:
-            objective = -compute_cost_from_pf(
-                r1_pf, self.base_mva, self.cost_c2, self.cost_c1, self.cost_c0)
-            penalty = compute_penalty_from_pf(r1_pf, self.base_mva)
-            valid = penalty > -FEASIBILITY_TOL
-            reward = float(self.reward_fn(objective, penalty, valid))
+            components = constraint_components(r1_pf[0], self.base_mva)
+            cost = compute_cost_from_pf(r1_pf, self.base_mva, self.cost_c2,
+                                        self.cost_c1, self.cost_c0)
+            reward = self.reward_fn(cost, components)
+            info.update(feasible=feasible(components), violations=components, cost=cost)
         else:
-            reward = float(self.non_converge_reward)
-
+            reward = self.non_converge_reward
         obs = self.x_scaled[self._current_idx].astype(np.float32)
-        return obs, reward, True, False, {}
-
-
-def estimate_scaling_params(x_raw, train_idx, params, case_data, bounds,
-                            num_samples=500, seed=42):
-    """Sample random actions to learn the scale of the objective and the penalty.
-
-    The reward scaling needs to know roughly how large each term is before training
-    starts. These statistics come from random actions, so they describe a far worse
-    policy than the trained one; they set the scale, not the target.
-    """
-    rng = np.random.default_rng(seed)
-    n_loads = params['general']['n_loads']
-    n_gen = params['general']['n_gen']
-    n_gen_ns = params['general']['n_gen_non_slack']
-    base_mva = params['general']['BASE_MVA']
-    c2 = params['generator']['cost_c2']
-    c1 = params['generator']['cost_c1']
-    c0 = params['generator']['cost_c0']
-
-    objectives = []
-    penalties = []
-    n_diverged = 0
-
-    for sample_idx in rng.choice(train_idx, size=num_samples, replace=True):
-        action = rng.random(n_gen_ns)
-        pg_non_slack, vm_gen = action_to_setpoints(action, bounds)
-
-        pd_pu = x_raw[sample_idx, :n_loads]
-        qd_pu = x_raw[sample_idx, n_loads:]
-
-        try:
-            r1_pf = solve_pf_setpoints(pd_pu, qd_pu, pg_non_slack, vm_gen,
-                                       params, case_data)
-            converged = bool(r1_pf[0]['success'])
-        except Exception:
-            converged = False
-
-        if not converged:
-            n_diverged += 1
-            continue
-
-        objectives.append(-compute_cost_from_pf(r1_pf, base_mva, c2, c1, c0))
-        penalties.append(compute_penalty_from_pf(r1_pf, base_mva))
-
-    if len(objectives) < 32:
-        raise ValueError(f"Insufficient PF-converged calibration probes: {len(objectives)}/{num_samples}")
-    objectives = np.array(objectives)
-    penalties = np.array(penalties)
-
-    # A degenerate spread would make the scaling divide by zero, so it falls back to
-    # leaving the term unscaled
-    std_obj = float(np.std(objectives)) if len(objectives) > 1 else 1.0
-    std_pen = float(np.std(penalties)) if len(penalties) > 1 else 1.0
-    std_obj = std_obj if std_obj > 0 else 1.0
-    std_pen = std_pen if std_pen > 0 else 1.0
-
-    print(f"  Random-action probes: {len(objectives)}/{num_samples} converged "
-          f"({n_diverged} diverged)")
-
-    return {
-        'mean_objective': float(np.mean(objectives)) if len(objectives) else 0.0,
-        'std_objective': std_obj,
-        'mean_penalty': float(np.mean(penalties)) if len(penalties) else 0.0,
-        'std_penalty': std_pen,
-        'min_objective': float(np.min(objectives)) if len(objectives) else -1.0,
-        'max_objective': float(np.max(objectives)) if len(objectives) else 0.0,
-        'min_penalty': float(np.min(penalties)) if len(penalties) else -1.0,
-        'max_penalty': float(np.max(penalties)) if len(penalties) else 0.0,
-    }
+        return obs, float(reward), True, False, info
 
 
 def evaluate_rl_agent(model, x_scaled, x_raw, indices, raw_data, params,
@@ -333,6 +260,7 @@ def acopf_ddpg_pgonly_experiment(
         action_bounds='physical',
         n_scaling_probes=500,
         rollout_steps=None,
+        learning_starts=1024,
         early_stop_patience=20,
         early_stop_min_delta=1e-6,
         **kwargs  # Absorbs settings that do not apply, such as early stopping
@@ -387,23 +315,9 @@ def acopf_ddpg_pgonly_experiment(
     # ------------------------------------------------------------------
     # 4. Reward scaling, estimated from random actions
     # ------------------------------------------------------------------
-    print(f"\n[Reward] Estimating the scale of the objective and the penalty...")
-    norm_params = estimate_scaling_params(
-        raw_data['x'], train_idx, params, case_data, bounds,
-        num_samples=n_scaling_probes, seed=seed)
-
-    reward_fn = Summation(
-        penalty_weight=penalty_weight,
-        reward_scaling='normalization',
-        scaling_params=norm_params,
-    )
-    print(f"  objective: mean={norm_params['mean_objective']:.2f}, "
-          f"std={norm_params['std_objective']:.2f}")
-    print(f"  penalty:   mean={norm_params['mean_penalty']:.4f}, "
-          f"std={norm_params['std_penalty']:.4f}")
-    print(f"  penalty_weight={penalty_weight}, "
-          f"non-convergence reward={NON_CONVERGE_REWARD}")
-
+    reward_fn = BoundedSummation(params)
+    norm_params = dict(cost_scale=reward_fn.cost_scale, tolerances=TOLERANCES,
+                       kind="bounded_summation_v1", failure_reward=-3.0)
     # ------------------------------------------------------------------
     # 5. Environment
     # ------------------------------------------------------------------
@@ -429,7 +343,7 @@ def acopf_ddpg_pgonly_experiment(
 
     model = DDPG(
         "MlpPolicy", train_env, learning_rate=learning_rate,
-        buffer_size=1_000_000, learning_starts=1024, batch_size=batch_size,
+        buffer_size=1_000_000, learning_starts=learning_starts, batch_size=batch_size,
         train_freq=(1, "step"), gradient_steps=1, gamma=0.0,
         action_noise=NormalActionNoise(np.zeros(n_gen_non_slack),
                                       0.1 * np.ones(n_gen_non_slack)),
@@ -443,7 +357,7 @@ def acopf_ddpg_pgonly_experiment(
     print(f"Training")
     print(f"{'=' * 70}")
     t0 = time.perf_counter()
-    from ml_opf_bench.rl_training import ValidationRewardStopping
+    from pgonly_validation import ValidationRewardStopping
     val_env = AcopfEnv(x_scaled, raw_data['x'], val_idx, params, case_data,
                        bounds, reward_fn, seed=seed)
     callback = ValidationRewardStopping(val_env, min(len(train_idx), total_timesteps),
@@ -451,7 +365,7 @@ def acopf_ddpg_pgonly_experiment(
     model.learn(total_timesteps=total_timesteps, callback=callback, progress_bar=False)
     train_time = time.perf_counter() - t0
     if is_managed():
-        return TrainingState(model.policy, params, train_time, dict(scalers=scalers, bounds=bounds, total_timesteps=model.num_timesteps, algorithm="DDPG", action_mode="pg_only", voltage_source="gen_data.csv:vg_pu", reward_scaling=norm_params))
+        return TrainingState(model.policy, params, train_time, dict(scalers=scalers, bounds=bounds, total_timesteps=model.num_timesteps, algorithm="DDPG", action_mode="pg_only", voltage_source="gen_data.csv:vg_pu", reward_scaling=norm_params, validation_history=callback.history))
     print(f"\nTraining completed in {train_time:.2f} seconds")
 
     # ------------------------------------------------------------------

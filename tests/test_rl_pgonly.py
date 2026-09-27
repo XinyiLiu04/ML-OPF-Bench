@@ -67,3 +67,25 @@ def test_environment_passes_only_pg_and_fixed_voltage(monkeypatch):
     np.testing.assert_array_equal(seen[1][0], bounds['pg_max'])
     for _, vm in seen:
         np.testing.assert_array_equal(vm, bounds['vm_fixed'])
+
+
+def test_constraint_bounds_and_reward_order():
+    load_method('ac', 'RL', 'ddpg-pgonly')
+    from pgonly_reward import constraint_components, BoundedSummation, feasible
+    gen = np.zeros((1,21));gen[0,[1,8,9,3,4]]=[50,100,0,100,-100]
+    bus = np.zeros((2,13));bus[:,0]=[10,20];bus[:,7]=1;bus[:,11]=1.1;bus[:,12]=.9
+    bus[0,8]=40
+    branch=np.zeros((1,17));branch[0,[0,1,5,11,12]]=[10,20,100,-360,360]
+    result=dict(gen=gen,bus=bus,branch=branch)
+    parts=constraint_components(result,100)
+    assert feasible(parts)
+    branch[0,12]=30
+    parts=constraint_components(result,100)
+    assert not feasible(parts)
+    np.testing.assert_allclose(parts['angle_rad']['maximum'],np.deg2rad(10))
+    branch[0,11]=50;branch[0,12]=360
+    np.testing.assert_allclose(constraint_components(result,100)['angle_rad']['maximum'],np.deg2rad(10))
+    branch[0,15]=150
+    assert constraint_components(result,100)['thermal_relative']['maximum']==.5
+    reward=BoundedSummation({'generator':dict(pg_min=np.array([0]),pg_max=np.array([1]),cost_c2=np.array([1]),cost_c1=np.array([1]),cost_c0=np.array([0]))})
+    assert reward(1e100,parts)>reward.failure_reward

@@ -24,6 +24,7 @@ export ML_OPF_BENCH_DATA="$PWD/ML-OPF-Bench-data"
 ```bash
 # Run one method (118-bus runs also evaluate distribution shifts).
 ml-opf-bench run --formulation ac --method DNN --case case118 --seed 42
+```
 
 ## Repository layout
 

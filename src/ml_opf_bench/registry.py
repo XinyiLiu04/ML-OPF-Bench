@@ -20,7 +20,7 @@ AC = {
     "E-NGT": ("acopf_ngt/semi_supervised_acopf.py", "train_extended_deepopf_ngt_smoothed", {"n_labeled": 300}),
 }
 DC = {
-    "RL": ("dcopf_rl.py", "rl_experiment", {}),
+    "RL": ("dcopf_rl/dcopf_rl.py", "rl_experiment", {}),
     "LR": ("dcopf_lr.py", "lr_experiment", {}),
     "DNN": ("dcopf_dnn.py", "dnn_experiment", {}),
     "CP": ("dcopf_cp(qp).py", "cp_qp_experiment", {"penalty_weight": 1e-5}),

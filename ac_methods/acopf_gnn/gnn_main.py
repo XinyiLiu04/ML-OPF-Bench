@@ -127,7 +127,7 @@ def spectral_gnn_acopf_experiment(
     print(f"\n[Sub-optimal State]")
     print(f"  Loading from: {data_dir}")
     if is_managed():
-        from ml_opf_bench.gnn_features import load_gnn_features
+        from ac_methods.acopf_gnn.gnn_features import load_gnn_features
         from ml_opf_bench.runtime import current_experiment
         rows = np.concatenate(prepare_data_splits(x_data_scaled, y_data_scaled, n_train_use, seed))
         subopt_x_raw, subopt_converged = load_gnn_features(

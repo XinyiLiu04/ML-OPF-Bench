@@ -483,7 +483,7 @@ def acopf_rl_experiment(
     print(f"Training")
     print(f"{'=' * 70}")
     t0 = time.perf_counter()
-    from ml_opf_bench.rl_training import ValidationRewardStopping
+    from ac_methods.acopf_rl.rl_training import ValidationRewardStopping
     val_env = AcopfEnv(x_scaled, raw_data['x'], val_idx, params, case_data,
                        bounds, reward_fn, seed=seed)
     callback = ValidationRewardStopping(val_env, min(len(train_idx), total_timesteps),

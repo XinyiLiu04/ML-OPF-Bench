@@ -1,6 +1,6 @@
 """Validation-only learning curves for the fixed-voltage DDPG variant."""
 import numpy as np
-from ml_opf_bench.rl_training import ValidationRewardStopping as RewardStopping
+from ac_methods.acopf_rl.rl_training import ValidationRewardStopping as RewardStopping
 
 
 class ValidationRewardStopping(RewardStopping):

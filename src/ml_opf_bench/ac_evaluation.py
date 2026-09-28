@@ -50,7 +50,7 @@ def evaluate_ac(spec, state, paths, indices=None):
         import pandas as pd
         from gnn_utils import build_adjacency_edge_weight, collate_graph_batch
         from generate_subopt_state import load_dcopf_constraints, solve_dcopf, run_powerflow_with_dcopf
-        from .gnn_features import load_gnn_features
+        from ac_methods.acopf_gnn.gnn_features import load_gnn_features
         subopt, valid_input = load_gnn_features(paths.case_name, paths.params_path, paths.data_path,
                                                params, raw["x"], idx, spec.workers)
         if len(subopt) != len(X):

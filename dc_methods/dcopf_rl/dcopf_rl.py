@@ -7,7 +7,7 @@ from sklearn.preprocessing import StandardScaler
 from stable_baselines3 import DDPG
 from stable_baselines3.common.noise import NormalActionNoise
 from ml_opf_bench.runtime import TrainingState
-from ml_opf_bench.dc_rl_validation import FeasibilityStopping
+from dc_methods.dcopf_rl.dc_rl_validation import FeasibilityStopping
 from dc_configuration.dcopf_data_setup import load_parameters_from_csv, load_samples, prepare_data_splits, reconstruct_full_pg
 from dc_configuration.dcopf_evaluation_metrics import violations, compute_cost
 

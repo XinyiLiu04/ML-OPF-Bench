@@ -9,8 +9,8 @@ from pathlib import Path
 
 import numpy as np
 
-from .io import sha256, write_json
-from .registry import implementation_root, load_method
+from ml_opf_bench.io import sha256, write_json
+from ml_opf_bench.registry import implementation_root, load_method
 
 _WORKER = None
 

@@ -3,7 +3,6 @@ recursive-include src/ml_opf_bench *.py
 recursive-include ac_methods *.py *.json
 recursive-include dc_methods *.py
 recursive-include examples *.py
-recursive-include reference_solver *.jl *.toml
 recursive-include test_systems *.m
 prune tests
 prune reports

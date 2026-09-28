@@ -27,12 +27,11 @@ include-package-data = false
 
 [tool.setuptools.package-data]
 "ac_methods.ac_configuration" = ["thermal_dual_order.json"]
-"reference_solver" = ["*.jl", "*.toml"]
 "test_systems" = ["typ/*.m", "api/*.m"]
 
 [tool.setuptools.packages.find]
 where = ["src", "."]
-include = ["ml_opf_bench*", "ac_methods*", "dc_methods*", "reference_solver", "test_systems"]
+include = ["ml_opf_bench*", "ac_methods*", "dc_methods*", "test_systems"]
 namespaces = true
 
 [tool.pytest.ini_options]

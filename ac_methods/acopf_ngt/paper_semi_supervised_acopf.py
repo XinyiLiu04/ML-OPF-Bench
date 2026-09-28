@@ -31,35 +31,15 @@ from algebraic_power_flow import AlgebraicPowerFlow
 from deepopf_ngt_common import (
     LOSS_KEYS,
     SOLVER_ALGEBRAIC,
-    DeepOPFNGT,
-    LossTerms,
-    VoltageDenormaliser,
     evaluate_algebraic,
     print_metrics_block,
     unweighted_total,
-    update_coefficients_eq12,
     weighted_total,
 )
+from paper_common import (PaperNetwork as DeepOPFNGT, PaperVoltageDenormaliser as VoltageDenormaliser,
+                          PaperLossTerms as LossTerms, update_paper_coefficients,
+                          supervised_voltage_loss, total_loss_supervised)
 
-
-def supervised_voltage_loss(v_pred, theta_pred, v_true, theta_true):
-    """Eq. (14): squared voltage error over the predicted buses, in physical units."""
-    return torch.mean(torch.sum(
-        (v_pred - v_true) ** 2 + (theta_pred - theta_true) ** 2, dim=1))
-
-
-def total_loss_supervised(Lv, loss_dict, k_v, coeffs):
-    """Eq. (13): supervised voltage error plus constraints, with no cost term.
-
-    The cost and the load satisfaction terms are absent by design: the labels already
-    encode the optimal operating point, so the step only has to reproduce it and stay
-    inside the constraints.
-    """
-    return (k_v * Lv
-            + coeffs['k_g'] * loss_dict['L_g']
-            + coeffs['k_Sl'] * loss_dict['L_Sl']
-            + coeffs['k_theta'] * loss_dict['L_theta']
-            + coeffs['k_z'] * loss_dict['L_z'])
 
 
 def train_extended_deepopf_ngt(
@@ -132,23 +112,30 @@ def train_extended_deepopf_ngt(
 
     print(f"\n[Semi-Supervised Split]")
     print(f"  Labelled (ground truth used): {len(labeled_idx)}")
-    print(f"  Step 2 uses the whole training split: {len(train_idx)}")
+    unlabeled_idx = np.delete(train_idx, labeled_pos)
+    if len(unlabeled_idx) == 0:
+        raise ValueError('Algorithm 2 requires a nonempty unlabeled partition')
+    print(f"  Unlabeled partition: {len(unlabeled_idx)}")
 
+    if n_labeled <= 0:
+        raise ValueError('Algorithm 2 requires labeled samples')
     nonzib = denorm.nonzib_indices
 
     def _to_dev(a):
         return torch.tensor(a, dtype=torch.float32, device=device)
 
-    X_train = _to_dev(x_data_scaled[train_idx])
-    Pd_train = _to_dev(raw_data['x'][train_idx][:, :n_loads])
-    Qd_train = _to_dev(raw_data['x'][train_idx][:, n_loads:])
+    X_train = _to_dev(x_data_scaled[unlabeled_idx])
+    Pd_train = _to_dev(raw_data['x'][unlabeled_idx][:, :n_loads])
+    Qd_train = _to_dev(raw_data['x'][unlabeled_idx][:, n_loads:])
 
     X_lab = _to_dev(x_data_scaled[labeled_idx])
     Pd_lab = _to_dev(raw_data['x'][labeled_idx][:, :n_loads])
     Qd_lab = _to_dev(raw_data['x'][labeled_idx][:, n_loads:])
     # Eq. (14) compares in physical units, so the targets stay unscaled
-    V_lab = _to_dev(raw_data['vm'][labeled_idx][:, nonzib])
-    Th_lab = _to_dev(raw_data['va'][labeled_idx][:, nonzib])
+    V_lab = _to_dev(raw_data['vm'][labeled_idx])
+    reference_bus = nonzib[denorm.reference_position]
+    va_labels = raw_data['va'][labeled_idx]
+    Th_lab = _to_dev(va_labels - va_labels[:, reference_bus:reference_bus + 1])
 
     X_val = _to_dev(x_data_scaled[val_idx])
     Pd_val = _to_dev(raw_data['x'][val_idx][:, :n_loads])
@@ -160,7 +147,7 @@ def train_extended_deepopf_ngt(
     # 4. Model
     # ------------------------------------------------------------------
     model = DeepOPFNGT(2 * n_loads, denorm.output_dim, hidden_sizes, reference_position=denorm.reference_position).to(device)
-    optimiser = optim.Adam(model.parameters(), lr=learning_rate)
+    optimiser = optim.SGD(model.parameters(), lr=learning_rate)
     loss_terms = LossTerms(params, pf_engine, device, theta_max_deg=theta_max_deg)
 
     print(f"\n{'=' * 70}")
@@ -208,15 +195,18 @@ def train_extended_deepopf_ngt(
                 v_alpha, theta_alpha = denorm(model(X_lab[idx]))
                 results = pf_engine(v_alpha, theta_alpha, Pd_lab[idx], Qd_lab[idx])
                 Lv = supervised_voltage_loss(
-                    v_alpha, theta_alpha, V_lab[idx], Th_lab[idx])
-                loss = total_loss_supervised(Lv, loss_terms(results), k_v, coeffs)
+                    results['v_all'], results['theta_all'], V_lab[idx], Th_lab[idx])
+                loss_dict = loss_terms(results)
+                if epoch > 1:
+                    update_paper_coefficients(coeffs, loss_dict, k_upper)
+                loss = total_loss_supervised(Lv, loss_dict, k_v, coeffs)
 
                 loss.backward()
                 optimiser.step()
                 epoch_Lv += Lv.item() * len(idx)
             epoch_Lv /= n_lab
 
-        # ---- Step 2: unsupervised pass over the whole split, Eq. (10) ----
+        # ---- Step 2: unsupervised pass over the disjoint unlabeled split, Eq. (10) ----
         epoch_sums = {k: 0.0 for k in LOSS_KEYS}
         epoch_total = 0.0
         perm = torch.randperm(n_train, device=device)
@@ -228,6 +218,8 @@ def train_extended_deepopf_ngt(
             v_alpha, theta_alpha = denorm(model(X_train[idx]))
             results = pf_engine(v_alpha, theta_alpha, Pd_train[idx], Qd_train[idx])
             loss_dict = loss_terms(results)
+            if epoch > 1:
+                update_paper_coefficients(coeffs, loss_dict, k_upper)
             loss = weighted_total(loss_dict, coeffs)
 
             loss.backward()
@@ -235,9 +227,6 @@ def train_extended_deepopf_ngt(
 
             scalars = {k: v.item() for k, v in loss_dict.items()}
 
-            # Only Step 2 drives Eq. (12); k_v stays fixed all the way through
-            if epoch > 1:
-                update_coefficients_eq12(coeffs, scalars, k_upper)
 
             bs = len(idx)
             epoch_total += loss.item() * bs

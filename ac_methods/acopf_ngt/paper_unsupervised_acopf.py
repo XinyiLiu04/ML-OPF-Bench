@@ -35,15 +35,15 @@ from algebraic_power_flow import AlgebraicPowerFlow
 from deepopf_ngt_common import (
     LOSS_KEYS,
     SOLVER_ALGEBRAIC,
-    DeepOPFNGT,
-    LossTerms,
-    VoltageDenormaliser,
     evaluate_algebraic,
     print_metrics_block,
     unweighted_total,
-    update_coefficients_eq12,
     weighted_total,
 )
+from paper_common import (PaperNetwork as DeepOPFNGT, PaperVoltageDenormaliser as VoltageDenormaliser,
+                          PaperLossTerms as LossTerms, update_paper_coefficients,
+                          supervised_voltage_loss, total_loss_supervised)
+
 
 
 def train_deepopf_ngt(
@@ -121,7 +121,7 @@ def train_deepopf_ngt(
     # 4. Model
     # ------------------------------------------------------------------
     model = DeepOPFNGT(2 * n_loads, denorm.output_dim, hidden_sizes, reference_position=denorm.reference_position).to(device)
-    optimiser = optim.Adam(model.parameters(), lr=learning_rate)
+    optimiser = optim.SGD(model.parameters(), lr=learning_rate)
     loss_terms = LossTerms(params, pf_engine, device, theta_max_deg=theta_max_deg)
 
     print(f"\n{'=' * 70}")
@@ -130,7 +130,7 @@ def train_deepopf_ngt(
     print(f"Input dim: {2 * n_loads} (pd + qd)")
     print(f"Output dim: {denorm.output_dim} "
           f"(v and theta at {denorm.n_nonzib} non-ZIB buses)")
-    print("Angles: unbounded radians relative to the reference bus; branch limits from CSV")
+    print("Angles: full-period sigmoid coordinates relative to the reference; branch limits from CSV")
     print(f"Trainable params: {sum(p.numel() for p in model.parameters()):,}")
     print(f"Training params: epochs={n_epochs}, lr={learning_rate}, "
           f"batch_size={batch_size}")
@@ -166,6 +166,8 @@ def train_deepopf_ngt(
             v_alpha, theta_alpha = denorm(model(X_train[idx]))
             results = pf_engine(v_alpha, theta_alpha, Pd_train[idx], Qd_train[idx])
             loss_dict = loss_terms(results)
+            if epoch > 1:
+                update_paper_coefficients(coeffs, loss_dict, k_upper)
             loss = weighted_total(loss_dict, coeffs)
 
             loss.backward()
@@ -173,10 +175,6 @@ def train_deepopf_ngt(
 
             scalars = {k: v.item() for k, v in loss_dict.items()}
 
-            # Eq. (12) is applied per mini-batch, but only once a first epoch has
-            # established loss magnitudes; the initial weights cover epoch one
-            if epoch > 1:
-                update_coefficients_eq12(coeffs, scalars, k_upper)
 
             bs = len(idx)
             epoch_total += loss.item() * bs
@@ -261,7 +259,7 @@ if __name__ == '__main__':
     print("      model, so EARLY_STOP_PATIENCE and EARLY_STOP_MIN_DELTA are ignored.")
     print(f"\n[DeepOPF-NGT Configuration]")
     print(f"  k_obj={K_OBJ}, initial k_i={K_INIT}, upper bound={K_MAX}")
-    print(f"  Angle window: +/-{THETA_MAX_DEG} degrees")
+    print("  Angle chart: [-pi, pi]; reference-relative; branch bounds from CSV")
     print("=" * 70)
 
     results = train_deepopf_ngt(

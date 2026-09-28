@@ -23,22 +23,22 @@ export ML_OPF_BENCH_DATA="$PWD/ML-OPF-Bench-data"
 
 ## Run
 
+**Command line**
+
 ```bash
-# List available DC methods
-ml-opf-bench methods --formulation dc
+# List available AC methods
+ml-opf-bench methods --formulation ac
 # Run the AC DNN baseline on case30
 ml-opf-bench run --formulation ac --method DNN --case case30 --device cpu
 ```
 
+**Python API**
+
 ```python
-from ml_opf_bench import Experiment, load_dataset, run_experiment
+from ml_opf_bench import Experiment, run_experiment
 
-# Load and split the DC dataset
-data = load_dataset("./ML-OPF-Bench-data", "dc", "case30")
-split = data.split(seed=42)
-
-# Run the DC linear regression baseline
-spec = Experiment("dc", "LR", case="case30", device="cpu")
+# Run the same AC DNN baseline on case30
+spec = Experiment("ac", "DNN", case="case30", device="cpu")
 run_experiment(spec, "./ML-OPF-Bench-data", "./runs")
 ```
 

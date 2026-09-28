@@ -37,12 +37,6 @@ except ImportError as e:
     print(f"Error: Unable to import from ac_configuration/ ({e})")
     sys.exit(1)
 
-try:
-    from reward import Summation
-except ImportError:
-    print("Error: cannot import reward.py; it must sit next to this script")
-    sys.exit(1)
-
 # A sample whose power flow diverges yields no cost and no violation to score, so it
 # gets a fixed reward well below the scaled range of a converged sample
 NON_CONVERGE_REWARD = -3.0

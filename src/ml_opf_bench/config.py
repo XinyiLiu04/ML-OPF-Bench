@@ -70,6 +70,8 @@ class Experiment:
     def __post_init__(self):
         if self.variant is None:
             object.__setattr__(self, "variant", "ddpg-pgonly" if self.formulation == "ac" and self.method == "RL" else "modified")
+        if self.formulation == "ac" and self.method == "RL" and self.variant != "ddpg-pgonly":
+            raise ValueError("AC RL supports only ddpg-pgonly")
         if self.variant not in ("modified", "paper", "ddpg-pgonly"):
             raise ValueError(self.variant)
         if self.variant == "ddpg-pgonly" and (self.formulation != "ac" or self.method != "RL"):

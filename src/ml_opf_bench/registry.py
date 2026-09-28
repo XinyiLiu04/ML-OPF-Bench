@@ -15,7 +15,7 @@ AC = {
     "KKT": ("acopf_kkt/acopf_pinn_main.py", "acopf_pinn_experiment", {}),
     "GNN": ("acopf_gnn/gnn_main.py", "spectral_gnn_acopf_experiment", {"K": 4, "predict_vm": False}),
     "AS": ("acopf_as.py", "active_set_acopf_experiment", {"top_k": 3, "active_set_type": "pg_only"}),
-    "RL": ("acopf_rl/acopf_rl.py", "acopf_rl_experiment", {"action_bounds": "physical"}),
+    "RL": ("acopf_rl/acopf_ddpg_pgonly.py", "acopf_ddpg_pgonly_experiment", {"action_bounds": "physical"}),
     "NGT": ("acopf_ngt/unsupervised_learning_acopf.py", "train_deepopf_ngt_smoothed", {}),
     "E-NGT": ("acopf_ngt/semi_supervised_acopf.py", "train_extended_deepopf_ngt_smoothed", {"n_labeled": 300}),
 }
@@ -40,7 +40,11 @@ def implementation_root(form):
     return Path(next(iter(spec.submodule_search_locations)))
 
 
-def load_method(form, method, variant="modified"):
+def load_method(form, method, variant=None):
+    if variant is None:
+        variant = "ddpg-pgonly" if form == "ac" and method == "RL" else "modified"
+    if form == "ac" and method == "RL" and variant != "ddpg-pgonly":
+        raise ValueError("AC RL supports only ddpg-pgonly")
     filename, function, defaults = (AC if form == "ac" else DC)[method]
     if variant == "ddpg-pgonly":
         if form != "ac" or method != "RL":

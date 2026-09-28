@@ -1,6 +1,6 @@
 # ML-OPF-Bench
 
-ML-OPF-Bench is a comprehensive benchmark for machine learning methods for AC and DC optimal power flow (OPF), bringing together OPF datasets and a broad collection of method implementations. Through systematic comparisons across power systems, training data sizes, and load distributions, it examines the trade-offs among prediction accuracy, constraint satisfaction, generation cost, and computational efficiency. These comparisons reveal insights into the strengths and limitations of existing approaches, offering guidance for the development and practical application of future learning-based OPF methods. The accompanying Python package supports reproducible evaluation and provides a common interface for integrating new methods.
+ML-OPF-Bench is a comprehensive benchmark for machine learning methods for AC and DC optimal power flow (OPF), bringing together OPF datasets and a broad collection of method implementations. Through systematic comparisons across power systems, training data sizes, and load distributions, it examines the trade-offs among prediction accuracy, constraint satisfaction, generation cost, and computational efficiency. These comparisons reveal insights into the strengths and limitations of existing approaches, offering guidance for the development and practical application of future learning-based OPF methods. The accompanying Python package provides an extensible framework for reproducible evaluation, making it easy to integrate new methods and compare them with existing baselines.
 
 [Dataset](https://huggingface.co/datasets/xinyi-liu/ML-OPF-Bench) · [Project page](https://xinyiliu04.github.io/ml-opf-bench-webpage/)
 
@@ -46,6 +46,8 @@ Each run saves its configuration, checkpoint, split indices, and evaluation resu
 in a new directory under `runs/`.
 
 ## Add a method
+
+ML-OPF-Bench is designed to support new methods through a shared interface. We welcome researchers and developers to implement their own approaches and evaluate them within the benchmark.
 
 Implement `fit(train, validation, *, seed)` and `predict(inputs)`, returning a
 `Prediction`. Register the class with `register_method("dc", "MY-METHOD", MyMethod)`

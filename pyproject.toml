@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "ml-opf-bench"
 version = "0.2.0"
 description = "Reproducible AC and DC optimal power flow benchmarks"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "numpy>=1.26,<3", "pandas>=2.2,<4", "scipy>=1.12,<2",
@@ -21,9 +22,17 @@ plots = ["matplotlib>=3.8,<4"]
 [project.scripts]
 ml-opf-bench = "ml_opf_bench.cli:main"
 
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.package-data]
+"ac_methods.ac_configuration" = ["thermal_dual_order.json"]
+"reference_solver" = ["*.jl", "*.toml"]
+"test_systems" = ["typ/*.m", "api/*.m"]
+
 [tool.setuptools.packages.find]
 where = ["src", "."]
-include = ["ml_opf_bench*", "ac_methods*", "dc_methods*"]
+include = ["ml_opf_bench*", "ac_methods*", "dc_methods*", "reference_solver", "test_systems"]
 namespaces = true
 
 [tool.pytest.ini_options]

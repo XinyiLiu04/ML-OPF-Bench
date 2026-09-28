@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from .registry import load_method
+from .evaluation import evaluation_indices
 
 
 def evaluate_ac(spec, state, paths, indices=None):
@@ -30,9 +31,7 @@ def evaluate_ac(spec, state, paths, indices=None):
         if nominal.shape != (params["general"]["n_gen"],) or not np.isfinite(nominal).all():
             raise ValueError("Invalid training-only AS voltage mean")
         params["general"]["vm_gen_mean"] = nominal.copy()
-    idx = np.arange(len(X)) if indices is None else np.asarray(indices)
-    if spec.eval_limit is not None:
-        idx = idx[:spec.eval_limit]
+    idx = evaluation_indices(len(X), indices, spec.eval_limit)
     general = params["general"]
     n_bus, n_gen, n_load = (general[k] for k in ("n_buses", "n_gen", "n_loads"))
     ns = general["non_slack_gen_idx"]
@@ -184,6 +183,9 @@ def evaluate_ac(spec, state, paths, indices=None):
                 torch.cuda.synchronize(device)
             timings.append(time.perf_counter() - start)
         metrics.update(train_time_s=state.train_time_s,
+                       inference_seconds=timings,
+                       inference_cuda_synchronized=device.type == "cuda",
+                       inference_warmup="full test evaluation precedes timing",
                        inference_sample_indices=idx[valid_input[idx]][:20].tolist(),
                        inference_ms=float(np.mean(timings) * 1000) if timings else None,
                        inference_scope="preprocessing, model and power-flow pipeline; batch=1; includes GNN DCOPF+PF features",

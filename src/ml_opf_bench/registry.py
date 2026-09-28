@@ -88,10 +88,16 @@ def training_call(experiment, paths):
     # Small smoke tests retain the labeled fraction without sampling validation/test rows.
     if experiment.epochs is not None and "n_labeled" in options:
         available = experiment.train_size or (experiment.pool_size - 2 * (experiment.pool_size // 12))
-        options["n_labeled"] = min(options["n_labeled"], available)
+        maximum = available - 1 if experiment.variant == "paper" else available
+        options["n_labeled"] = min(options["n_labeled"], maximum)
     if experiment.method == "RL" and experiment.epochs is not None:
         options.update(total_timesteps=128 * experiment.epochs, rollout_steps=64, n_scaling_probes=32)
     settings.update(options)
+    if experiment.formulation == "ac" and experiment.method in ("NGT", "E-NGT") and experiment.variant == "modified":
+        load_penalties = {"case30": {"NGT": "normalized", "E-NGT": "physical"},
+                          "case118": {"NGT": "normalized", "E-NGT": "normalized"},
+                          "case300": {"NGT": "physical", "E-NGT": "physical"}}
+        settings.update(load_penalty=load_penalties[experiment.case][experiment.method])
     settings.update(case_name=paths.case_name, params_path=str(paths.params_path), data_path=str(paths.data_path))
     signature = inspect.signature(function)
     if "duals_dir" in signature.parameters:
@@ -100,3 +106,41 @@ def training_call(experiment, paths):
         settings = {k: v for k, v in settings.items() if k in signature.parameters}
     signature.bind(**settings)
     return module, function, settings
+
+
+_CUSTOM_METHODS = {}
+
+
+def register_method(formulation, name, factory):
+    """Register a Method factory; built-in names cannot be replaced."""
+    if formulation not in ("ac", "dc"):
+        raise ValueError(formulation)
+    if not isinstance(name, str) or not name or name != name.upper() or not name.replace("-", "").replace("_", "").isalnum():
+        raise ValueError("method name must be an uppercase identifier")
+    key = (formulation, name)
+    if name in (AC if formulation == "ac" else DC) or key in _CUSTOM_METHODS:
+        raise ValueError(f"Method already registered: {formulation}/{name}")
+    if not callable(factory):
+        raise TypeError("factory must be callable")
+    _CUSTOM_METHODS[key] = factory
+
+
+def create_method(formulation, name, **options):
+    """Create an independent custom method instance; constructor errors propagate."""
+    from .methods import Method
+    method = _CUSTOM_METHODS[(formulation, name)](**options)
+    if not isinstance(method, Method) or not callable(method.fit) or not callable(method.predict):
+        raise TypeError("factory must return a method implementing fit and predict")
+    return method
+
+
+def list_methods(formulation):
+    """List built-in and process-registered extension names."""
+    if formulation not in ("ac", "dc"):
+        raise ValueError(formulation)
+    builtins = AC if formulation == "ac" else DC
+    return tuple(builtins) + tuple(name for form, name in _CUSTOM_METHODS if form == formulation)
+
+
+def is_custom_method(formulation, name):
+    return (formulation, name) in _CUSTOM_METHODS

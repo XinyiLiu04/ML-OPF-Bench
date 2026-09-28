@@ -44,6 +44,7 @@ from deepopf_ngt_common import (
     physical_load_penalty,
 )
 
+
 DEFAULT_INITIAL = {'k_g': 100.0, 'k_Sl': 10.0, 'k_theta': 100.0,
                    'k_z': 10.0, 'k_d': 10.0}
 # The generator and angle terms keep a high ceiling because they bound physics the
@@ -60,7 +61,7 @@ def train_deepopf_ngt_smoothed(
         data_path,
         n_train_use=None,
         seed=42,
-        n_epochs=100,
+        n_epochs=None,
         learning_rate=1e-3,
         hidden_sizes=None,
         batch_size=256,
@@ -68,9 +69,21 @@ def train_deepopf_ngt_smoothed(
         k_obj=0.1,
         grad_clip=1.0,
         theta_max_deg=30.0,
+        load_penalty=None,
         **kwargs
 ):
-    """Train on a random split and evaluate on the test indices."""
+    """Return final-epoch weights; validation does not select or stop training."""
+    case = case_name.removeprefix("pglib_opf_").removesuffix("_ieee")
+    budgets = {"case30": 2500, "case118": 3000, "case300": 2500}
+    penalties = {"case30": "normalized", "case118": "normalized", "case300": "physical"}
+    if n_epochs is None:
+        n_epochs = budgets[case]
+    if not isinstance(n_epochs, int) or isinstance(n_epochs, bool) or n_epochs < 1:
+        raise ValueError("n_epochs must be a positive integer")
+    if load_penalty is None:
+        load_penalty = penalties[case]
+    if load_penalty not in ("normalized", "physical"):
+        raise ValueError(load_penalty)
     torch.manual_seed(seed)
     np.random.seed(seed)
     device = torch.device(device if torch.cuda.is_available() else 'cpu')
@@ -154,9 +167,11 @@ def train_deepopf_ngt_smoothed(
     print(f"Training Progress")
     print(f"{'=' * 70}")
 
-    print("Load penalty: physical dead-zone, tau=0.001 p.u.; raw losses retained for EMA diagnostics")
+    print(f"Load penalty: {load_penalty}")
     n_train = len(X_train)
     n_batches = (n_train + batch_size - 1) // batch_size
+    if torch.device(device).type == "cuda":
+        torch.cuda.synchronize(device)
     t0 = time.perf_counter()
 
     for epoch in range(1, n_epochs + 1):
@@ -174,9 +189,9 @@ def train_deepopf_ngt_smoothed(
             results = pf_engine(v_alpha, theta_alpha, Pd_train[idx], Qd_train[idx])
             loss_dict = loss_terms(results)
 
-            # Only the optimized load term uses physical scaling.
             normalized = scheduler.normalise(loss_dict)
-            normalized['L_d'] = physical_load_penalty(results)
+            if load_penalty == 'physical':
+                normalized['L_d'] = physical_load_penalty(results)
             loss = weighted_total(normalized, scheduler.coeffs)
 
             loss.backward()
@@ -198,8 +213,6 @@ def train_deepopf_ngt_smoothed(
         else:
             scheduler.update(means)
 
-        # Diagnostic only, no model selection. Unit weights on the raw losses keep
-        # the score comparable across epochs while the weights move.
         model.eval()
         with torch.no_grad():
             v_a, th_a = denorm(model(X_val))
@@ -216,11 +229,17 @@ def train_deepopf_ngt_smoothed(
                   f"L_d={means['L_d']:.4f} | val={val_score:.4f}")
             print(f"  Weights: {scheduler.describe()}{scheduler.describe_ema()}")
 
+    if torch.device(device).type == "cuda":
+        torch.cuda.synchronize(device)
     train_time = time.perf_counter() - t0
+    timing = dict(clock="perf_counter", cuda_synchronized=torch.device(device).type == "cuda",
+                  scope="optimization and diagnostic validation; final-epoch weights",
+                  excludes="data loading, preprocessing, model initialization, test evaluation",
+                  candidates_trained=1)
     if is_managed():
-        return TrainingState(model, params, train_time, dict(scalers=scalers, denorm=denorm, theta_max_deg=theta_max_deg, load_penalty='physical_deadzone_v1', load_tolerance_pu=1e-3))
+        return TrainingState(model, params, train_time, dict(scalers=scalers, denorm=denorm, theta_max_deg=theta_max_deg, load_penalty=load_penalty, load_tolerance_pu=1e-3, training_protocol="fixed-budget-final", epochs_completed=n_epochs, training_timing=timing))
     print(f"\nTraining completed in {train_time:.2f} seconds, "
-          f"returning the final epoch's model")
+          f"returning the final epoch's model (epoch {n_epochs})")
 
     # ------------------------------------------------------------------
     # 6. Inference latency (forward pass only)
@@ -264,8 +283,6 @@ if __name__ == '__main__':
     print("\n" + "=" * 70)
     print("Loading Configuration")
     print("=" * 70)
-    print("Note: this method trains for a fixed epoch budget and returns the final")
-    print("      model, so EARLY_STOP_PATIENCE and EARLY_STOP_MIN_DELTA are ignored.")
     print(f"\n[EMA-Scheduled Configuration]")
     print(f"  k_obj={K_OBJ} (fixed), gradient clip={GRAD_CLIP}")
     print(f"  Initial weights: {DEFAULT_INITIAL}")

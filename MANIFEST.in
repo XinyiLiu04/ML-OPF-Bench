@@ -1,0 +1,17 @@
+include README.md pyproject.toml
+recursive-include src/ml_opf_bench *.py
+recursive-include ac_methods *.py *.json
+recursive-include dc_methods *.py
+recursive-include examples *.py
+recursive-include reference_solver *.jl *.toml
+recursive-include test_systems *.m
+prune tests
+prune reports
+prune runs
+prune final_plots
+prune ac_dataset
+prune dc_dataset
+prune data_generalization
+exclude src/ml_opf_bench/compute_experiment.py
+exclude src/ml_opf_bench/compute_flops.py
+global-exclude *.py[cod] .DS_Store

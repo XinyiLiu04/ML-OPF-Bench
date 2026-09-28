@@ -1,6 +1,7 @@
 """Explicit dataset selection and the manuscript's experiment settings."""
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
+import json
 from pathlib import Path
 import os
 
@@ -62,9 +63,13 @@ class Experiment:
     evaluate_shifts: bool = True
     eval_limit: int | None = None
     workers: int = 4
-    variant: str = "modified"
+    variant: str | None = None
+    method_options: dict = field(default_factory=dict)
+    postprocess: bool = False
 
     def __post_init__(self):
+        if self.variant is None:
+            object.__setattr__(self, "variant", "ddpg-pgonly" if self.formulation == "ac" and self.method == "RL" else "modified")
         if self.variant not in ("modified", "paper", "ddpg-pgonly"):
             raise ValueError(self.variant)
         if self.variant == "ddpg-pgonly" and (self.formulation != "ac" or self.method != "RL"):
@@ -73,7 +78,8 @@ class Experiment:
             raise ValueError("Paper variant is defined only for AC NGT/E-NGT")
         if self.formulation not in ("ac", "dc"):
             raise ValueError(self.formulation)
-        if self.method not in (AC_METHODS if self.formulation == "ac" else DC_METHODS):
+        from .registry import list_methods, is_custom_method
+        if self.method not in list_methods(self.formulation):
             raise ValueError(self.method)
         if self.case not in WIDTHS[self.formulation]:
             raise ValueError(self.case)
@@ -81,8 +87,18 @@ class Experiment:
             raise ValueError(self.mode)
         if self.mode == "scaling" and (self.case != "case118" or not self.train_size):
             raise ValueError("Scaling requires case118 and a positive training size")
-        if self.epochs is not None and self.epochs < 1:
-            raise ValueError("epochs must be positive")
+        for name in ("epochs", "eval_limit", "workers", "pool_size", "train_size"):
+            value = getattr(self, name)
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
+                raise ValueError(f"{name} must be a positive integer")
+        if not isinstance(self.method_options, dict):
+            raise TypeError("method_options must be a dictionary")
+        json.dumps(self.method_options, allow_nan=False)
+        custom = is_custom_method(self.formulation, self.method)
+        if not custom and (self.method_options or self.postprocess):
+            raise ValueError("method_options and postprocess are for registered extensions")
+        if custom and self.epochs is not None:
+            raise ValueError("Set custom training budgets through method_options")
 
     @property
     def run_id(self):
@@ -90,17 +106,27 @@ class Experiment:
         variant = "" if self.variant == "modified" else f"-{self.variant}"
         return f"{self.formulation}-{self.case}-{self.method.lower()}-{self.mode}{size}-seed{self.seed}{variant}"
 
+    @property
+    def resolved_training_protocol(self):
+        if self.formulation == "ac" and self.method in ("NGT", "E-NGT") and self.variant == "modified":
+            return "fixed-budget-final"
+        return "implementation-default"
+
     def training_parameters(self):
         epochs = 1000
         if self.method == "MU":
             epochs = 80
         if self.method in ("NGT", "E-NGT"):
             epochs = 3000 if self.case == "case118" else 2500
-        return dict(n_train_use=self.pool_size, seed=self.seed, n_epochs=self.epochs or epochs,
+        settings = dict(n_train_use=self.pool_size, seed=self.seed, n_epochs=self.epochs or epochs,
                     early_stop_patience=20, early_stop_min_delta=1e-6,
                     learning_rate=3e-4 if self.method == "RL" else 1e-3,
                     hidden_sizes=list(WIDTHS[self.formulation][self.case]),
                     batch_size=BATCHES[self.case], device=self.device)
+        if self.resolved_training_protocol == "fixed-budget-final":
+            settings.pop("early_stop_patience")
+            settings.pop("early_stop_min_delta")
+        return settings
 
     def as_dict(self):
         return asdict(self)

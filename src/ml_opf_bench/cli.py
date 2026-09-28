@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import importlib
 
 from .config import Experiment, default_data_root, paper_experiments
 
@@ -9,6 +10,8 @@ from .config import Experiment, default_data_root, paper_experiments
 def main():
     parser = argparse.ArgumentParser(prog="ml-opf-bench")
     commands = parser.add_subparsers(dest="command", required=True)
+    methods = commands.add_parser("methods")
+    methods.add_argument("--formulation", choices=("ac", "dc"), required=True)
     plan = commands.add_parser("plan")
     plan.add_argument("--seed", type=int, default=42)
     suite = commands.add_parser("suite")
@@ -30,6 +33,9 @@ def main():
     run = commands.add_parser("run")
     run.add_argument("--formulation", choices=("ac", "dc"), required=True)
     run.add_argument("--method", required=True)
+    run.add_argument("--plugin", help="Importable module:factory for a custom method")
+    run.add_argument("--method-options", type=json.loads, default={})
+    run.add_argument("--postprocess", action="store_true")
     run.add_argument("--variant", choices=("modified", "paper", "ddpg-pgonly"), default=None)
     run.add_argument("--case", default="case118")
     run.add_argument("--mode", choices=("cross-system", "scaling"), default="cross-system")
@@ -44,6 +50,10 @@ def main():
     run.add_argument("--workers", type=int, default=4)
     run.add_argument("--no-shifts", action="store_true")
     args = parser.parse_args()
+    if args.command == "methods":
+        from .registry import list_methods
+        print(json.dumps(list_methods(args.formulation)))
+        return
     if args.command == "plan":
         print(json.dumps([spec.as_dict() for spec in paper_experiments(args.seed)], indent=2))
         return
@@ -57,9 +67,21 @@ def main():
                                args.julia, args.seed, args.samples))
         return
     from .runner import run_experiment
-    spec = Experiment(args.formulation, args.method.upper(), args.case, args.mode, args.seed,
-                      args.train_size, args.pool_size, args.epochs, args.device, not args.no_shifts,
-                      args.eval_limit, args.workers, args.variant or ("ddpg-pgonly" if args.formulation == "ac" and args.method == "RL" else "modified"))
+    method = args.method.upper()
+    if args.plugin:
+        from .registry import register_method
+        module_name, separator, attribute = args.plugin.partition(":")
+        if not separator or not module_name or not attribute:
+            parser.error("--plugin must be module:factory")
+        register_method(args.formulation, method, getattr(importlib.import_module(module_name), attribute))
+    spec = Experiment(
+        formulation=args.formulation, method=method, case=args.case, mode=args.mode,
+        seed=args.seed, train_size=args.train_size, pool_size=args.pool_size, epochs=args.epochs,
+        device=args.device, evaluate_shifts=not args.no_shifts, eval_limit=args.eval_limit,
+        workers=args.workers,
+        variant=args.variant or ("ddpg-pgonly" if args.formulation == "ac" and method == "RL" else "modified"),
+        method_options=args.method_options, postprocess=args.postprocess,
+    )
     print(run_experiment(spec, args.data_root, args.output_root))
 
 

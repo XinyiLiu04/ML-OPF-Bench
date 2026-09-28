@@ -7,6 +7,7 @@ import numpy as np
 import torch
 
 from .registry import load_method
+from .evaluation import evaluation_indices
 
 
 def evaluate_dc(spec, state, paths, indices=None):
@@ -19,9 +20,7 @@ def evaluate_dc(spec, state, paths, indices=None):
     pd_all, pg_all = load_samples(str(paths.data_path), params)
     for key in ("bus_ids", "gen_ids", "branch_ids", "non_slack_gen_idx", "slack_gen_idx"):
         np.testing.assert_array_equal(params["general"][key], state.params["general"][key])
-    idx = np.arange(len(pd_all)) if indices is None else indices
-    if spec.eval_limit is not None:
-        idx = idx[:spec.eval_limit]
+    idx = evaluation_indices(len(pd_all), indices, spec.eval_limit)
     pd_test, pg_test = pd_all[idx], pg_all[idx]
     model, artifacts = state.model, state.artifacts
     device = torch.device(spec.device)
@@ -83,6 +82,12 @@ def evaluate_dc(spec, state, paths, indices=None):
             synchronize(device)
             elapsed.append(time.perf_counter() - start)
         metrics = evaluate_dispatch(predicted, pg_test, pd_test, params)
+        finite = np.isfinite(predicted).all(axis=1)
+        arrays[f"{name}_valid"] = finite
+        if not finite.all():
+            metrics["conditional_metrics"] = (
+                evaluate_dispatch(predicted[finite], pg_test[finite], pd_test[finite], params)
+                if finite.any() else {key: np.nan for key in metrics})
         if spec.method == "RL":
             v = violations(predicted, pd_test, params)
             rates = params['constraints']['rate_a'][params['constraints']['constrained_branches']]

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import platform
 import subprocess
+import shutil
 
 import numpy as np
 
@@ -57,12 +58,19 @@ def environment():
 
 def code_version():
     from .registry import implementation_root
-    root = implementation_root("ac").parent
-    files = [p for folder in ("src/ml_opf_bench", "ac_methods", "dc_methods")
-             for p in (root / folder).rglob("*.py")]
-    digests = {str(p.relative_to(root)): sha256(p) for p in sorted(files)}
+    from . import __version__
+    folders = {"ml_opf_bench": Path(__file__).parent,
+               "ac_methods": implementation_root("ac"), "dc_methods": implementation_root("dc")}
+    digests = {f"{name}/{p.relative_to(folder)}": sha256(p)
+               for name, folder in folders.items() for p in sorted(folder.rglob("*"))
+               if p.is_file() and p.suffix in (".py", ".json")}
     digest = hashlib.sha256(json.dumps(digests, sort_keys=True).encode()).hexdigest()
-    revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
-                              capture_output=True, text=True, check=False)
-    return {"source_sha256": digest, "git_revision": revision.stdout.strip() if revision.returncode == 0 else None,
-            "files": digests}
+    root = folders["ac_methods"].parent
+    revision = None
+    if (root / ".git").exists() and shutil.which("git"):
+        result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
+                                capture_output=True, text=True, check=False)
+        if result.returncode == 0:
+            revision = result.stdout.strip()
+    return {"package_version": __version__, "source_sha256": digest,
+            "git_revision": revision, "files": digests}

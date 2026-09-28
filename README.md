@@ -1,33 +1,49 @@
 # ML-OPF-Bench
 
-A shared training and evaluation pipeline for machine-learning methods for AC and DC optimal power flow.
+A Python package for AC/DC OPF datasets, ML baselines, and shared evaluation.
 
 [Dataset](https://huggingface.co/datasets/xinyi-liu/ML-OPF-Bench) · [Project page](https://xinyiliu04.github.io/ml-opf-bench-webpage/)
 
-## Installation
+## Install
+
+Requires Python 3.11 or later.
 
 ```bash
-git clone https://github.com/XinyiLiu04/ML-OPF-Bench.git
-cd ML-OPF-Bench
-python -m pip install -e .
+python -m pip install git+https://github.com/XinyiLiu04/ML-OPF-Bench.git
 ```
 
-## Data
+## Get the data
 
 ```bash
 hf download xinyi-liu/ML-OPF-Bench --repo-type dataset --local-dir ./ML-OPF-Bench-data
 export ML_OPF_BENCH_DATA="$PWD/ML-OPF-Bench-data"
 ```
 
-## Reproducing the benchmark
+## Run
 
 ```bash
-# Run one method (118-bus runs also evaluate distribution shifts).
-ml-opf-bench run --formulation ac --method DNN --case case118 --seed 42
+ml-opf-bench methods --formulation dc
+ml-opf-bench run --formulation ac --method DNN --case case30 --device cpu
 ```
 
-## Repository layout
+```python
+from ml_opf_bench import Experiment, load_dataset, run_experiment
 
-- `ac_methods/`, `dc_methods/`: models and physical-system utilities.
-- `src/ml_opf_bench/`: experiment runner and evaluation pipeline.
-- `data_generalization/`: optional Julia dataset-generation notebooks.
+data = load_dataset("./ML-OPF-Bench-data", "dc", "case30")
+split = data.split(seed=42)
+
+spec = Experiment("dc", "LR", case="case30", device="cpu")
+run_experiment(spec, "./ML-OPF-Bench-data", "./runs")
+```
+
+Each run saves its configuration, checkpoint, split indices, and evaluation results
+in a new directory under `runs/`.
+
+## Add a method
+
+Implement `fit(train, validation, *, seed)` and `predict(inputs)`, returning a
+`Prediction`. Register the class with `register_method("dc", "MY-METHOD", MyMethod)`
+and pass its name to `Experiment`.
+
+See [the minimal example](examples/custom_method.py) and [the interface](src/ml_opf_bench/methods.py).
+Importable methods also work with `--plugin my_method:MyMethod --method MY-METHOD`.

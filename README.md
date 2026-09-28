@@ -12,7 +12,9 @@ Requires Python 3.11 or later.
 python -m pip install git+https://github.com/XinyiLiu04/ML-OPF-Bench.git
 ```
 
-## Get the data ([Dataset](https://huggingface.co/datasets/xinyi-liu/ML-OPF-Bench))
+## Get the data 
+
+([Dataset](https://huggingface.co/datasets/xinyi-liu/ML-OPF-Bench))
 
 ```bash
 hf download xinyi-liu/ML-OPF-Bench --repo-type dataset --local-dir ./ML-OPF-Bench-data

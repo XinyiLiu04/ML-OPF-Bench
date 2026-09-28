@@ -45,7 +45,7 @@ run_experiment(spec, "./ML-OPF-Bench-data", "./runs")
 Each run saves its configuration, checkpoint, split indices, and evaluation results
 in a new directory under `runs/`.
 
-## Add a method
+## Add a new learning-based OPF algorithm
 
 ML-OPF-Bench is designed to support new methods through a shared interface. We welcome researchers and developers to implement their own approaches and evaluate them within the benchmark.
 

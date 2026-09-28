@@ -4,7 +4,7 @@ ML-OPF-Bench is a comprehensive benchmark for machine learning methods for AC an
 
 [Dataset](https://huggingface.co/datasets/xinyi-liu/ML-OPF-Bench) · [Project page](https://xinyiliu04.github.io/ml-opf-bench-webpage/)
 
-[![ML-OPF-Bench workflow](docs/images/workflow.png)](docs/images/workflow.pdf)
+[![ML-OPF-Bench workflow](docs/images/workflow.png?v=20260928)](docs/images/workflow.pdf)
 
 ## Install
 

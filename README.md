@@ -2,7 +2,7 @@
 
 ML-OPF-Bench is a comprehensive benchmark for machine learning methods for AC and DC optimal power flow (OPF), bringing together OPF datasets and a broad collection of method implementations. Through systematic comparisons across power systems, training data sizes, and load distributions, it examines the trade-offs among prediction accuracy, constraint satisfaction, generation cost, and computational efficiency. These comparisons reveal insights into the strengths and limitations of existing approaches, offering guidance for the development and practical application of future learning-based OPF methods. The accompanying Python package provides an extensible framework for reproducible evaluation, making it easy to integrate new methods and compare them with existing baselines.
 
-[Dataset](https://huggingface.co/datasets/xinyi-liu/ML-OPF-Bench) · [Project page](https://xinyiliu04.github.io/ml-opf-bench-webpage/)
+[Dataset](https://huggingface.co/datasets/xinyi-liu/ML-OPF-Bench)
 
 [![ML-OPF-Bench workflow](docs/images/workflow.png?v=20260928)](docs/images/workflow.pdf)
 

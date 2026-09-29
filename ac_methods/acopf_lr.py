@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Linear regression baseline for ACOPF: one model per non-slack Pg and per generator Vm."""
+"""Multioutput linear regression baseline for ACOPF non-slack Pg and generator Vm."""
 
 from ml_opf_bench.runtime import TrainingState, is_managed
 
@@ -10,9 +10,6 @@ from sklearn.linear_model import LinearRegression
 
 import os
 
-# ac_configuration/ sits in ac_methods/. Appending the parent of this script's own
-# directory makes it importable whether this file is directly in ac_methods/ or one
-# level down in a grouped method folder, and from any working directory.
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
@@ -33,47 +30,36 @@ GLOBAL_CASE_DATA = None
 
 
 class LinearRegressionACOPF:
-    """One independent least-squares model per output: n_gen_non_slack for Pg, n_gen for Vm."""
-
     def __init__(self, n_gen_non_slack, n_gen):
         self.n_gen_non_slack = n_gen_non_slack
         self.n_gen = n_gen
-        self.pg_models = [LinearRegression() for _ in range(n_gen_non_slack)]
-        self.vm_models = [LinearRegression() for _ in range(n_gen)]
+        self.regressor = LinearRegression()
         self.is_fitted = False
 
     def fit(self, X_train, y_pg_non_slack_train, y_vm_gen_train):
-        """Fit every output model and return the total wall-clock training time."""
-        print(f"\nTraining {self.n_gen_non_slack} Pg models and {self.n_gen} Vm models...")
+        """Fit all output columns together and return wall-clock training time."""
+        if y_pg_non_slack_train.shape != (len(X_train), self.n_gen_non_slack):
+            raise ValueError("Unexpected non-slack Pg target shape")
+        if y_vm_gen_train.shape != (len(X_train), self.n_gen):
+            raise ValueError("Unexpected generator Vm target shape")
+        print("\nTraining one multioutput Pg/Vm linear regression model...")
         t_start = time.perf_counter()
-
-        for gen_idx in range(self.n_gen_non_slack):
-            self.pg_models[gen_idx].fit(X_train, y_pg_non_slack_train[:, gen_idx])
-
-        for gen_idx in range(self.n_gen):
-            self.vm_models[gen_idx].fit(X_train, y_vm_gen_train[:, gen_idx])
-
+        inputs = np.asarray(X_train, dtype=np.float64)
+        targets = np.concatenate((y_pg_non_slack_train, y_vm_gen_train), axis=1).astype(np.float64)
+        self.regressor.fit(inputs, targets)
         t_train = time.perf_counter() - t_start
         self.is_fitted = True
         print(f"Training completed in {t_train:.2f} seconds")
         return t_train
 
     def predict(self, X):
-        """Return predicted non-slack Pg and generator-bus Vm in physical units."""
+        """Return non-slack Pg and generator Vm in physical units."""
         if not self.is_fitted:
             raise ValueError("Model not trained")
-
-        n_samples = X.shape[0]
-        y_pg_non_slack_pred = np.zeros((n_samples, self.n_gen_non_slack))
-        y_vm_gen_pred = np.zeros((n_samples, self.n_gen))
-
-        for gen_idx in range(self.n_gen_non_slack):
-            y_pg_non_slack_pred[:, gen_idx] = self.pg_models[gen_idx].predict(X)
-
-        for gen_idx in range(self.n_gen):
-            y_vm_gen_pred[:, gen_idx] = self.vm_models[gen_idx].predict(X)
-
-        return y_pg_non_slack_pred, y_vm_gen_pred
+        if not hasattr(self, "regressor"):
+            raise ValueError("Legacy independent-output checkpoint requires explicit conversion or refitting")
+        predictions = np.asarray(self.regressor.predict(np.asarray(X, dtype=np.float64)), dtype=np.float64)
+        return predictions[:, :self.n_gen_non_slack], predictions[:, self.n_gen_non_slack:]
 
 
 def evaluate_model(model, X, indices, raw_data, params, scalers, split_name, verbose=True):
@@ -155,7 +141,7 @@ def linear_regression_experiment(
         seed=42,
         **kwargs  # Absorbs iterative-training settings that do not apply to least squares
 ):
-    """Fit least-squares models on a random split and evaluate on the held-out test indices."""
+    """Fit a multioutput model and evaluate on held-out test indices."""
     global GLOBAL_CASE_DATA
     np.random.seed(seed)
 
@@ -165,15 +151,9 @@ def linear_regression_experiment(
     print(f"Case: {case_name}")
     print(f"{'=' * 70}")
 
-    # ------------------------------------------------------------------
-    # 1. Load network parameters and PyPower case data
-    # ------------------------------------------------------------------
     params = load_parameters_from_csv(case_name, params_path)
     GLOBAL_CASE_DATA = load_case_from_csv(case_name, params_path)
 
-    # ------------------------------------------------------------------
-    # 2. Load dataset and fit scalers
-    # ------------------------------------------------------------------
     x_data_scaled, y_data_scaled, scalers, raw_data, cost_baseline = \
         load_and_scale_acopf_data(data_path, params, fit_scalers=True,
                                   n_train_use=n_train_use, seed=seed)
@@ -190,10 +170,7 @@ def linear_regression_experiment(
     if cost_baseline:
         print(f"  Cost Baseline: {cost_baseline:.2f} $/h")
 
-    # ------------------------------------------------------------------
-    # 3. Split. The validation indices go unused here, but the split is kept
-    #    identical to the other methods so the test sets are comparable.
-    # ------------------------------------------------------------------
+    # Keep the shared split even though least squares does not use validation.
     train_idx, val_idx, test_idx = prepare_data_splits(
         x_data_scaled, y_data_scaled,
         n_train_use=n_train_use,
@@ -207,14 +184,11 @@ def linear_regression_experiment(
     y_pg_non_slack_train = raw_data['pg_non_slack'][train_idx]
     y_vm_gen_train = raw_data['vm_gen'][train_idx]
 
-    # ------------------------------------------------------------------
-    # 4. Fit
-    # ------------------------------------------------------------------
     print(f"\n{'=' * 70}")
     print(f"Model Configuration")
     print(f"{'=' * 70}")
     print(f"Input dim: {x_data_scaled.shape[1]} (pd + qd)")
-    print(f"Independent models: {n_gen_non_slack} (pg_non_slack) + {n_gen} (vm_gen)")
+    print(f"Multioutput targets: {n_gen_non_slack} (pg_non_slack) + {n_gen} (vm_gen)")
     print(f"{'=' * 70}")
 
     model = LinearRegressionACOPF(n_gen_non_slack, n_gen)
@@ -222,9 +196,6 @@ def linear_regression_experiment(
     if is_managed():
         return TrainingState(model, params, train_time, dict(scalers=scalers))
 
-    # ------------------------------------------------------------------
-    # 5. Evaluation
-    # ------------------------------------------------------------------
     print(f"\n{'=' * 70}")
     print(f"Test Set Evaluation")
     print(f"{'=' * 70}")
@@ -233,9 +204,6 @@ def linear_regression_experiment(
         model, X_test, test_idx, raw_data, params, scalers, "Test", verbose=True
     )
 
-    # ------------------------------------------------------------------
-    # 6. Inference latency (single sample)
-    # ------------------------------------------------------------------
     for _ in range(10):
         model.predict(X_test[:1])
 
@@ -247,9 +215,6 @@ def linear_regression_experiment(
 
     latency_ms = np.mean(times) * 1000
 
-    # ------------------------------------------------------------------
-    # 7. Results
-    # ------------------------------------------------------------------
     print(f"\n{'=' * 70}")
     print(f"Final Results Summary")
     print(f"{'=' * 70}")
